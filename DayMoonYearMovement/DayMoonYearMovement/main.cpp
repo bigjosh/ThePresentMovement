@@ -64,6 +64,20 @@ void movement_mid_l() {
 	SETBIT(MOVEMENT_A_DDR  , MOVEMENT_A_BIT);		// Full drive on	
 }
 
+// Turn on the pin that drives the movement Lavet motor.
+// Phase is 0 or 1 for drive pin low or high 
+// Assumes DDR is off and PORT is low (how movement_mid_off() leaves it)
+
+void movement_mid_on( uint8_t phase ) {
+	
+	if (phase) {
+		SETBIT(MOVEMENT_A_PORT , MOVEMENT_A_BIT);		// Pull-up on
+	}
+	
+	SETBIT(MOVEMENT_A_DDR  , MOVEMENT_A_BIT);		// Full drive high or low depending on PORT as set by phase
+		
+}
+
 void movement_mid_off() {
 	CLRBIT(MOVEMENT_A_DDR  , MOVEMENT_A_BIT);		// turn off drive
 	CLRBIT(MOVEMENT_A_PORT , MOVEMENT_A_BIT);		// turn off Pull-up 
@@ -297,23 +311,22 @@ void setup() {
 	SETBIT( RX8900_INT_PORT , RX8900_INT_BIT );		
 		
 	// Enable interrupt on pin change to wake us every time the fixed-cycle timer pulls /INT low.
-	GIMSK = _BV(PCIE);				//When the PCIE bit is set (one) and the I-bit in the Status Register (SREG) is set (one), pin change interrupt is enabled.
-	PCMSK = _BV(RX8900_INT_INT);	//Each PCINT[5:0] bit selects whether pin change interrupt is enabled on the corresponding I/O pin. 
+	SETBIT( GIMSK  , PCIE );				//When the PCIE bit is set (one) and the I-bit in the Status Register (SREG) is set (one), pin change interrupt is enabled.
 	
 	// Set up to deep sleep between interrupts
 	sleep_enable();							// How to do once to enable sleep
 	set_sleep_mode(SLEEP_MODE_PWR_DOWN);	// Lowest power, can wake on interrupts (pin change, WDT)
 	sei();									// Allow interrupts (so we can wake on them)
-		
-	
+			
 	// Activate the movement pins
 	//movement_activate();
-	SETBIT( DIDR0 , ADC2D );		// Turn off digital input buffer on the pin connected to the movement. This pin is often floating at Vcc midpoint, so this should keep the buffer from bouncing around. 
+	//SETBIT( DIDR0 , ADC2D );		// Turn off digital input buffer on the pin connected to the movement. This pin is often floating at Vcc midpoint, so this should keep the buffer from bouncing around. 
 
-	SETBIT( PORTB , 0 );			// Pull up the currently unused pin so it doesnt float around. 
+	SETBIT( PORTB , 0 );			// Pull up the currently unused pin so it does not float around. 
 
 	// Activate the RTC pins
 	rx8900_init();
+	// Set RTC to send us A periodic interrupt on the /INT pin
 	rx8900_setup();
 	
 }
@@ -327,6 +340,9 @@ int main(void)
 	const int off_time_ms = 1;
 	
 	const int pulse_count = 20;
+	
+	//_delay_ms(1000);
+
 
     while (1) 
     {
@@ -370,36 +386,31 @@ int main(void)
 		*/
 		
 
-		// Disable /INT interrupt here to avoid spurious ints when /INT rises from waking us from WDT sleep.
-		CLRBIT( RX8900_INT_PORT ,RX8900_INT_BIT );	// Disable pull up. /INT Will be pulled low for ~7ms, so no need to waste power though the pull up.		
-		movement_mid_h();
-		//_delay_ms(50);
-		sleep16ms();
-		SETBIT( RX8900_INT_PORT ,RX8900_INT_BIT );	// OK, /INT should be reset by the time we get here, so turn on the pull up again.		
-		sleep32ms();		
-		movement_mid_off();
-		// Renabled /INT interrupt here. By now pull-up will have pulled the voltage high enough to avoid spurious intterrupt.
-		
-		//sleep_cpu();
-		
-		// WOKE UP HERE
-		// Disable /INT interrupt here to avoid spurious ints when /INT rises from waking us from WDT sleep.		
-		CLRBIT( RX8900_INT_PORT ,RX8900_INT_BIT );	// Disable pull up. /INT Will be pulled low for ~7ms, so no need to waste power though the pull up. 
-		// Disable input buffer here?
-		
+		//for( uint8_t phase : {0,1} ) {
+		for(uint8_t phase=0; phase<2;phase++) {
 
-		movement_mid_l();
-		//_delay_ms(50);
-		sleep16ms();
-		SETBIT( RX8900_INT_PORT ,RX8900_INT_BIT );	// OK, /INT should be reset by the time we get here, so turn on the pull up again. 		
-		sleep32ms();
-		
-		movement_mid_off();
-		// Renabled /INT interrupt here. By now pull-up will have pulled the voltage high enough to avoid spurious intterrupt.
-		
-		//sleep_cpu();		
-		
-		
+			// Disable /INT interrupt here to avoid spurious interrupt when /INT rises from waking us from WDT sleep.
+			CLRBIT( PCMSK , RX8900_INT_INT );		//Disable interrupt on /INT pin change. This will prevent us from waking from the WDT delay sleep when this pin floats after the RTC stops pulling it low. 		
+			SETBIT( DIDR0 , ADC1D );				// Turn off digital input buffer on the pin connected to /INT so will not waste power when it floats when RTC stops pulling it low.
+			CLRBIT( RX8900_INT_PORT , RX8900_INT_BIT );	// Disable pull up. /INT Will be pulled low by RTC for ~7ms, so no need to waste power though the pull up.	
+			
+			movement_mid_on(phase);
+			sleep16ms();
+			SETBIT( RX8900_INT_PORT , RX8900_INT_BIT );		// OK, /INT should be reset by the time we get here, so turn on the pull up again. This will give it time to pull the voltage back up by the time we are ready to sleep again. 
+			sleep32ms();		
+			movement_mid_off();
+			
+			CLRBIT( DIDR0 , ADC1D );				// Enable digital input buffer on the pin connected to /INT so we will see when RTC pulls it low
+			SETBIT( PCMSK , RX8900_INT_INT );	// Enable interrupt on /INT pin change to wake us when RTC says we are ready for next tick. 
+
+			//sleep_cpu();
+			//sei();
+			//sleepUntilISR();
+			//sei();
+			sleep_cpu();			
+			//_delay_ms(250);
+		}
+				
     }
 }
 
