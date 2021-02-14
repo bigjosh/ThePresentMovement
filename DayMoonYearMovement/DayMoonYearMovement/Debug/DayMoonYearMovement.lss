@@ -3,11 +3,11 @@ DayMoonYearMovement.elf:     file format elf32-avr
 
 Sections:
 Idx Name          Size      VMA       LMA       File off  Algn
-  0 .text         000001ac  00000000  00000000  00000054  2**1
+  0 .text         000001aa  00000000  00000000  00000054  2**1
                   CONTENTS, ALLOC, LOAD, READONLY, CODE
-  1 .data         00000000  00800060  00800060  00000200  2**0
+  1 .data         00000000  00800060  00800060  000001fe  2**0
                   CONTENTS, ALLOC, LOAD, DATA
-  2 .comment      00000030  00000000  00000000  00000200  2**0
+  2 .comment      00000030  00000000  00000000  000001fe  2**0
                   CONTENTS, READONLY
   3 .note.gnu.avr.deviceinfo 0000003c  00000000  00000000  00000230  2**2
                   CONTENTS, READONLY
@@ -17,15 +17,15 @@ Idx Name          Size      VMA       LMA       File off  Algn
                   CONTENTS, READONLY, DEBUGGING
   6 .debug_abbrev 00000633  00000000  00000000  00000f62  2**0
                   CONTENTS, READONLY, DEBUGGING
-  7 .debug_line   0000067c  00000000  00000000  00001595  2**0
+  7 .debug_line   00000672  00000000  00000000  00001595  2**0
                   CONTENTS, READONLY, DEBUGGING
-  8 .debug_frame  00000270  00000000  00000000  00001c14  2**2
+  8 .debug_frame  00000270  00000000  00000000  00001c08  2**2
                   CONTENTS, READONLY, DEBUGGING
-  9 .debug_str    0000079b  00000000  00000000  00001e84  2**0
+  9 .debug_str    0000079b  00000000  00000000  00001e78  2**0
                   CONTENTS, READONLY, DEBUGGING
- 10 .debug_loc    00000177  00000000  00000000  0000261f  2**0
+ 10 .debug_loc    00000177  00000000  00000000  00002613  2**0
                   CONTENTS, READONLY, DEBUGGING
- 11 .debug_ranges 00000130  00000000  00000000  00002796  2**0
+ 11 .debug_ranges 00000130  00000000  00000000  0000278a  2**0
                   CONTENTS, READONLY, DEBUGGING
 
 Disassembly of section .text:
@@ -53,7 +53,7 @@ Disassembly of section .text:
   22:	cf ed       	ldi	r28, 0xDF	; 223
   24:	cd bf       	out	0x3d, r28	; 61
   26:	ae d0       	rcall	.+348    	; 0x184 <main>
-  28:	bf c0       	rjmp	.+382    	; 0x1a8 <_exit>
+  28:	be c0       	rjmp	.+380    	; 0x1a6 <_exit>
 
 0000002a <__bad_interrupt>:
   2a:	ea cf       	rjmp	.-44     	; 0x0 <__vectors>
@@ -360,26 +360,19 @@ int main(void)
  19a:	a2 98       	cbi	0x14, 2	; 20
 			SETBIT( PCMSK , RX8900_INT_INT );	// Enable interrupt on /INT pin change to wake us when RTC says we are ready for next tick. 
  19c:	aa 9a       	sbi	0x15, 2	; 21
-
-			//sleep_cpu();
-			//sei();
-			//sleepUntilISR();
-			//sei();
-			sleep_cpu();			
- 19e:	88 95       	sleep
 		sleepUntilISR();
 		*/
 		
 
 		//for( uint8_t phase : {0,1} ) {
 		for(uint8_t phase=0; phase<2;phase++) {
- 1a0:	cf 5f       	subi	r28, 0xFF	; 255
- 1a2:	c2 30       	cpi	r28, 0x02	; 2
- 1a4:	89 f7       	brne	.-30     	; 0x188 <main+0x4>
- 1a6:	ef cf       	rjmp	.-34     	; 0x186 <main+0x2>
+ 19e:	cf 5f       	subi	r28, 0xFF	; 255
+ 1a0:	c2 30       	cpi	r28, 0x02	; 2
+ 1a2:	91 f7       	brne	.-28     	; 0x188 <main+0x4>
+ 1a4:	f0 cf       	rjmp	.-32     	; 0x186 <main+0x2>
 
-000001a8 <_exit>:
- 1a8:	f8 94       	cli
+000001a6 <_exit>:
+ 1a6:	f8 94       	cli
 
-000001aa <__stop_program>:
- 1aa:	ff cf       	rjmp	.-2      	; 0x1aa <__stop_program>
+000001a8 <__stop_program>:
+ 1a8:	ff cf       	rjmp	.-2      	; 0x1a8 <__stop_program>

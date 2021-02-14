@@ -407,8 +407,8 @@ int main(void)
 			//sei();
 			//sleepUntilISR();
 			//sei();
-			sleep_cpu();			
-			//_delay_ms(250);
+			//sleep_cpu();			
+			//_delay_ms(100);
 		}
 				
     }

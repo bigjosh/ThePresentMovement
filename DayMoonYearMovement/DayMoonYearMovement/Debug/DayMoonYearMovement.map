@@ -201,7 +201,7 @@ END GROUP
 .rela.plt
  *(.rela.plt)
 
-.text           0x00000000      0x1ac
+.text           0x00000000      0x1aa
  *(.vectors)
  .vectors       0x00000000       0x1e D:/Program Files (x86)/Atmel/Studio/7.0/Packs/atmel/ATtiny_DFP/1.3.172/gcc/dev/attiny25/avr25/tiny-stack/crtattiny25.o
                 0x00000000                __vector_default
@@ -318,13 +318,13 @@ END GROUP
  .text._Z5setupv
                 0x00000164       0x20 main.o
                 0x00000164                _Z5setupv
- .text.main     0x00000184       0x24 main.o
+ .text.main     0x00000184       0x22 main.o
                 0x00000184                main
-                0x000001a8                . = ALIGN (0x2)
+                0x000001a6                . = ALIGN (0x2)
  *(.fini9)
- .fini9         0x000001a8        0x0 d:/program files (x86)/atmel/studio/7.0/toolchain/avr8/avr8-gnu-toolchain/bin/../lib/gcc/avr/5.4.0/avr25/tiny-stack\libgcc.a(_exit.o)
-                0x000001a8                _exit
-                0x000001a8                exit
+ .fini9         0x000001a6        0x0 d:/program files (x86)/atmel/studio/7.0/toolchain/avr8/avr8-gnu-toolchain/bin/../lib/gcc/avr/5.4.0/avr25/tiny-stack\libgcc.a(_exit.o)
+                0x000001a6                _exit
+                0x000001a6                exit
  *(.fini9)
  *(.fini8)
  *(.fini8)
@@ -343,11 +343,11 @@ END GROUP
  *(.fini1)
  *(.fini1)
  *(.fini0)
- .fini0         0x000001a8        0x4 d:/program files (x86)/atmel/studio/7.0/toolchain/avr8/avr8-gnu-toolchain/bin/../lib/gcc/avr/5.4.0/avr25/tiny-stack\libgcc.a(_exit.o)
+ .fini0         0x000001a6        0x4 d:/program files (x86)/atmel/studio/7.0/toolchain/avr8/avr8-gnu-toolchain/bin/../lib/gcc/avr/5.4.0/avr25/tiny-stack\libgcc.a(_exit.o)
  *(.fini0)
-                0x000001ac                _etext = .
+                0x000001aa                _etext = .
 
-.data           0x00800060        0x0 load address 0x000001ac
+.data           0x00800060        0x0 load address 0x000001aa
                 [!provide]                PROVIDE (__data_start, .)
  *(.data)
  *(.data*)
@@ -365,8 +365,8 @@ END GROUP
  *(.bss*)
  *(COMMON)
                 [!provide]                PROVIDE (__bss_end, .)
-                0x000001ac                __data_load_start = LOADADDR (.data)
-                0x000001ac                __data_load_end = (__data_load_start + SIZEOF (.data))
+                0x000001aa                __data_load_start = LOADADDR (.data)
+                0x000001aa                __data_load_end = (__data_load_start + SIZEOF (.data))
 
 .noinit         0x00800060        0x0
                 [!provide]                PROVIDE (__noinit_start, .)
@@ -455,10 +455,10 @@ END GROUP
  .debug_abbrev  0x00000000      0x3e8 D:/Program Files (x86)/Atmel/Studio/7.0/Packs/atmel/ATtiny_DFP/1.3.172/gcc/dev/attiny25/avr25/tiny-stack/crtattiny25.o
  .debug_abbrev  0x000003e8      0x24b main.o
 
-.debug_line     0x00000000      0x67c
+.debug_line     0x00000000      0x672
  *(.debug_line .debug_line.* .debug_line_end)
  .debug_line    0x00000000       0xe8 D:/Program Files (x86)/Atmel/Studio/7.0/Packs/atmel/ATtiny_DFP/1.3.172/gcc/dev/attiny25/avr25/tiny-stack/crtattiny25.o
- .debug_line    0x000000e8      0x594 main.o
+ .debug_line    0x000000e8      0x58a main.o
 
 .debug_frame    0x00000000      0x270
  *(.debug_frame)
