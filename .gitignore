@@ -42,3 +42,6 @@ DayMoonYearMovement/DayMoonYearMovement/Debug/DayMoonYearMovement.lss
 DayMoonYearMovement/DayMoonYearMovement/Debug/DayMoonYearMovement.map
 DayMoonYearMovement/DayMoonYearMovement/Debug/DayMoonYearMovement.srec
 *.*~
+*.elf
+*.lss
+*.map

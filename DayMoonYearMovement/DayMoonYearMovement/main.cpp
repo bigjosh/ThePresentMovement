@@ -54,6 +54,11 @@
 #define MOVEMENT_B_DDR	DDRB
 #define MOVEMENT_B_BIT	0
 
+// Display LED anode
+
+#define LED_PORT	PORTB
+#define LED_DDR		DDRB
+#define LED_BIT		0
 
 void movement_mid_h() {
 	SETBIT(MOVEMENT_A_PORT , MOVEMENT_A_BIT);		// Pull-up on
