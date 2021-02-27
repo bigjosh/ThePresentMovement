@@ -199,13 +199,29 @@ void rx8900_fout_32KHz(void) {
 
 }
 
-void rx8900_fixed_timer_go() {
+// Set the RX8900 counts between INT events (MAX = 4195)
+// A count can be a second or a minute (and others we don't care about) depending on TSEL bits.
+// Count starts when TE bit enabled
+
+
+void rx8900_fixed_timer_set_count( uint16_t c ) {	
+	rx8900_reg_set( RX8900_TC0_REG , c & 0xff );		// Low byte of count value (in seconds)
+	rx8900_reg_set( RX8900_TC1_REG , c / 0xff );		// High nibble of count value
+}
+
+void rx8900_fixed_timer_set_seconds( unsigned s ) {
 	
-	rx8900_reg_set( RX8900_TC0_REG , 5 );		// Low byte of count value (in seconds)
-	rx8900_reg_set( RX8900_TC1_REG , 0 );		// High nibble of count value
-	
-	rx8900_reg_set( RX8900_CONTROL_REG , 0b01010000 );	// Enable /INT out on fixed timer, 2 second temp comp
+	rx8900_fixed_timer_set_count(s);
+
 	rx8900_reg_set( RX8900_EXTENTION_REG , 0b00111010); // Enable fixed timer, 1-second base clock
+
+}
+
+void rx8900_fixed_timer_set_minutes( unsigned s ) {
+	
+	rx8900_fixed_timer_set_count(s);
+	
+	rx8900_reg_set( RX8900_EXTENTION_REG , 0b00111011); // Enable fixed timer, 1-minute base clock
 
 }
 
@@ -221,7 +237,6 @@ void rx8900_set_int(void) {
 }
 
 
-
 void rx8900_init() {
 	
 	i2c_init();
@@ -234,29 +249,13 @@ void rx8900_init() {
 
 void rx8900_setup(void) {
 
-	// rx8900_fout_32KHz();
-	rx8900_fixed_timer_go();
-
-	// Next the FLAGS register
+	// Enable /INT out on fixed timer, 2 second temp comp
 	
-	// Importantly clears the low voltage detect flags to zero
-	// also clears a bunch of alarm flags we don't use
+	rx8900_reg_set( RX8900_CONTROL_REG , 0b01010000 );	
 	
-	const uint8_t flag_reg = 0b00000000;
-
-//	USI_TWI_Write_Data( RX8900_TWI_ADDRESS , RX8900_FLAG_REG , &flag_reg , 1 );
-
-	// Note here we reset. which is OK because to get here the low voltage detect had to be set.
-
-	const uint8_t contrl_reg = 0b01000000;     // 2s temp comp, no timers or interrupts or alarms, NO RESET
-
-//	USI_TWI_Write_Data( RX8900_TWI_ADDRESS , RX8900_CONTROL_REG, &contrl_reg, 1 );
+	// MOS switch closed, Voltage detector OFF. We have main battery wired to both Vcc and Bat so no backup detecting wanted. 
 	
-	// Default with MOS switch closed, sampled 2ms every 1s
-	
-	const uint8_t backup_reg= 0;
-
-	// USI_TWI_Write_Data( RX8900_TWI_ADDRESS , RX8900_BACKUP_REG , &backup_reg , 1 );
+	rx8900_reg_set( RX8900_BACKUP_REG , 0b00001000 );
 	
 }
 
@@ -312,8 +311,10 @@ void sleepUntilISR() {
 void setup() {
 	
 	
-	// Enable pull-up on /INT pin. This is open-drain output on the RX8900 so we need to pull it up with the ATTINY.	
+	// Enable pull-up on /INT pin. This is open-drain output on the RX8900 so we need to pull it up with the ATTINY.
 	SETBIT( RX8900_INT_PORT , RX8900_INT_BIT );		
+	_delay_ms(20);									// Give time for pull-up to change the voltage on the pin (50K resistor)
+	
 		
 	// Enable interrupt on pin change to wake us every time the fixed-cycle timer pulls /INT low.
 	SETBIT( GIMSK  , PCIE );				//When the PCIE bit is set (one) and the I-bit in the Status Register (SREG) is set (one), pin change interrupt is enabled.
@@ -321,20 +322,25 @@ void setup() {
 	// Set up to deep sleep between interrupts
 	sleep_enable();							// How to do once to enable sleep
 	set_sleep_mode(SLEEP_MODE_PWR_DOWN);	// Lowest power, can wake on interrupts (pin change, WDT)
-	sei();									// Allow interrupts (so we can wake on them)
 			
-	// Activate the movement pins
-	//movement_activate();
-	//SETBIT( DIDR0 , ADC2D );		// Turn off digital input buffer on the pin connected to the movement. This pin is often floating at Vcc midpoint, so this should keep the buffer from bouncing around. 
-
 	SETBIT( PORTB , 0 );			// Pull up the currently unused pin so it does not float around. 
 
 	// Activate the RTC pins
 	rx8900_init();
+	
 	// Set RTC to send us A periodic interrupt on the /INT pin
 	rx8900_setup();
 	
+	rx8900_fixed_timer_set_seconds( 2.5 * 60 );		// 2 1/2 mins per quadrant - 10 minutes all the way around
+	
+	sei();									// Allow interrupts (so we can wake on them)
+	
 }
+
+
+// Spin around aimlessly forever
+// It takes about 6 minutes to go all the way around (3600 steps * 100ms/step)
+// (not exact because it depends on the watchdog timer to measure 48ms per half step)
 
 void spin() {
 	
@@ -361,14 +367,7 @@ int main(void)
 
 	setup();
 	
-	const int on_time_ms = 2;
-	const int off_time_ms = 1;
-	
-	const int pulse_count = 20;
-	
-	//_delay_ms(1000);
-
-	spin();
+	//spin();
 
     while (1) 
     {
@@ -416,23 +415,21 @@ int main(void)
 
 		while (1) {
 			
-			// Disable /INT interrupt here to avoid spurious interrupt when /INT rises from waking us from WDT sleep.
-			CLRBIT( PCMSK , RX8900_INT_INT );		//Disable interrupt on /INT pin change. This will prevent us from waking from the WDT delay sleep when this pin floats after the RTC stops pulling it low. 		
-			SETBIT( DIDR0 , ADC1D );				// Turn off digital input buffer on the pin connected to /INT so will not waste power when it floats when RTC stops pulling it low.
-			CLRBIT( RX8900_INT_PORT , RX8900_INT_BIT );	// Disable pull up. /INT Will be pulled low by RTC for ~7ms, so no need to waste power though the pull up.	
+			CLRBIT( RX8900_INT_PORT , RX8900_INT_BIT );	// Disable pull up. /INT Will be pulled low by RTC for ~7ms, so no need to waste power though the pull up.
 
-			for( int i=0; i<60; i++ ) {
+			// Disable /INT interrupt here to avoid spurious interrupt when /INT rises from waking us from WDT sleep.			
+			CLRBIT( PCMSK , RX8900_INT_INT );		// Disable interrupt on /INT pin change. This will prevent us from waking from the WDT delay sleep when this pin floats after the RTC stops pulling it low. 		
+			SETBIT( DIDR0 , ADC1D );				// Turn off digital input buffer on the pin connected to /INT so will not waste power when it floats when RTC stops pulling it low.
+
+			for( int i=0; i< 60 * 15 ; i++ ) {		// go 1/4 way around every 2.5 minutes (10 minutes all the way around)
 			
-				movement_mid_on(phase);
-				//_delay_ms(50);
-			
+				movement_mid_on(phase);			
 				sleep16ms();
 				SETBIT( RX8900_INT_PORT , RX8900_INT_BIT );		// OK, /INT should be reset by the time we get here, so turn on the pull up again. This will give it time to pull the voltage back up by the time we are ready to sleep again. 
 				sleep32ms();		
 				movement_mid_off();
 				sleep16ms();
 				sleep32ms();
-				//_delay_ms(25);
 				phase = phase ? 0 : 1;
 				
 			}
