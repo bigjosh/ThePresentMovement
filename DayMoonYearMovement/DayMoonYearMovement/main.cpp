@@ -430,7 +430,7 @@ int main(void)
 				movement_mid_off();
 				sleep16ms();
 				sleep32ms();
-				phase = phase ? 0 : 1;
+				phase = !phase;
 				
 			}
 			
