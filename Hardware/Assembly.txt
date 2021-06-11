@@ -1,0 +1,24 @@
+Do place:
+U1 
+U2
+C1
+C2
+S1
+
+DO NOT PLACE:
+BT1
+BT2
+J1
+L1
+LOGO
+
+We will provide:
+U1
+U2
+
+You will procure:
+C1
+C2
+S1
+
+OK TO SUBSTITUTE C1, C2 WITH SUITABLE CAP CER 1UF 25V X5R 0603
