@@ -331,7 +331,10 @@ void setup() {
 	// Set RTC to send us A periodic interrupt on the /INT pin
 	rx8900_setup();
 	
-	rx8900_fixed_timer_set_seconds( 2.5 * 60 );		// 2 1/2 mins per quadrant - 10 minutes all the way around
+//	rx8900_fixed_timer_set_seconds( 2.5 * 60 );		// 2 1/2 mins per quadrant - 10 minutes all the way around
+
+	rx8900_fixed_timer_set_seconds( 1 );		// 2 1/2 mins per quadrant - 10 minutes all the way around
+
 	
 	sei();									// Allow interrupts (so we can wake on them)
 	
@@ -362,10 +365,43 @@ void spin() {
 
 }
 
+void normalStepMode() {
+	
+	uint8_t phase =0;
+	 
+	while (1) {
+		
+		CLRBIT( RX8900_INT_PORT , RX8900_INT_BIT );	// Disable pull up. /INT Will be pulled low by RTC for ~7ms, so no need to waste power though the pull up.
+
+		// Disable /INT interrupt here to avoid spurious interrupt when /INT rises from waking us from WDT sleep.
+		CLRBIT( PCMSK , RX8900_INT_INT );		// Disable interrupt on /INT pin change. This will prevent us from waking from the WDT delay sleep when this pin floats after the RTC stops pulling it low.
+		SETBIT( DIDR0 , ADC1D );				// Turn off digital input buffer on the pin connected to /INT so will not waste power when it floats when RTC stops pulling it low.
+
+		movement_mid_on(phase);
+		phase = !phase;		
+		
+		sleep16ms();
+		SETBIT( RX8900_INT_PORT , RX8900_INT_BIT );		// OK, /INT should be reset by the time we get here, so turn on the pull up again. This will give it time to pull the voltage back up by the time we are ready to sleep again.
+		
+				
+		sleep32ms();
+		movement_mid_off();
+
+		CLRBIT( DIDR0 , ADC1D );				// Enable digital input buffer on the pin connected to /INT so we will see when RTC pulls it low
+		SETBIT( PCMSK , RX8900_INT_INT );		// Enable interrupt on /INT pin change to wake us when RTC says we are ready for next tick.
+					
+		sleep_cpu();
+					
+	}	
+	
+}
+
 int main(void)
 {
 
 	setup();
+	
+	normalStepMode();
 	
 	//spin();
 
