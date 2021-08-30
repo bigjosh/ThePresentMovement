@@ -1,4 +1,4 @@
-# The Prtesent Movement
+# The Present Movement
 ![](clocks.png)
 
  Movement for The Present clock from The Present. Kickstarter here...
