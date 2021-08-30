@@ -1,7 +1,7 @@
-# DayMoonYearMovement
+# The Prtesent Movement
 ![](clocks.png)
 
- Movement for the DayMoonYear clock from The Present. Kickstarter here...
+ Movement for The Present clock from The Present. Kickstarter here...
 
 https://www.kickstarter.com/projects/scottthrift/the-present-day-moon-year
 
