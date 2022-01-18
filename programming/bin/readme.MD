@@ -23,7 +23,7 @@ Note that you can also use a non-Windows computer or a different programmer, but
 2. Install the hand pointing to 6 o'clock
 2. Hold the connector against the clock board like this...
 
-        ![](hold_connector.png)
+    ![](hold_connector.png)
 1. Double click on the appropriate programming file in the directory (either `day.bat` or `moon.bat`)
 2. Wait for programming success
 3. Remove programming connector
