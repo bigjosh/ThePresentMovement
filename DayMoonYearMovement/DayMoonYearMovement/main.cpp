@@ -2,12 +2,14 @@
  * DayMoonYearMovement.cpp
  *
  * Created: 2/3/2021 12:04:26 AM
- * Author : passp
+ * Author : josh
  */ 
+
 
 #include <avr/io.h>
 #include <avr/sleep.h>
 #include <avr/interrupt.h>
+#include <avr/sfr_defs.h>		// _BV()
 
 #define F_CPU 1000000
 #include <util/delay.h>
@@ -17,6 +19,8 @@
 #define CLRBIT(x,b) ((x) &= ~_BV(b))
 #define GETBIT(x,b) ((x) &= _BV(b))
 
+
+// *** Hardware connections
 
 // Connections to the RTC (Epson RX8900)
 
@@ -28,10 +32,12 @@
 #define RX8900_SDA_DDR	DDRB
 #define RX8900_SDA_BIT	1
 
-#define RX8900_INT_PORT PORTB
-#define RX8900_INT_DDR	DDRB
-#define RX8900_INT_BIT	2
-#define RX8900_INT_INT	PCINT2
+#define RX8900INT_PORT		PORTB
+#define RX8900INT_DDR		DDRB
+#define RX8900INT_BIT		2
+#define RX8900INT_PCMSK	PCINT2
+
+// Define these for the i2c code to see
 
 #define SDA_PORT	RX8900_SDA_PORT
 #define SDA_PIN		RX8900_SDA_BIT
@@ -42,31 +48,64 @@
 #define	I2C_PULLUP		1					// Use internal pullups for the TWI lines
 #define I2C_SLOWMODE	1					// No rush- we are using pullups so give time for them to pull up. 
 
+// We use this not so great i2c code since it does not really matter - we only use it one time on power up and never touch it again
+// so not worth rewriting. 
+
 #include "SoftI2C.h"
 
 // Connections to the movement windings (Lavet stepper motor)
+// Note that this pin is connected to one end of the motor windings and the other end of the
+// windings is connected to the midpoint between the two 1.5V batteries, so driving this pin high
+// puts +1.5V on the winding and driving it low puts -1.5V across them. 
 
-#define MOVEMENT_A_PORT PORTB
-#define MOVEMENT_A_DDR	DDRB
-#define MOVEMENT_A_BIT	4
+// TODO: Put the movement on pin AN0 or AN1 so we can disable the digital input buffer to 
+// possibly save power when pin is floating midpoint. 
 
-#define MOVEMENT_B_PORT PORTB
-#define MOVEMENT_B_DDR	DDRB
-#define MOVEMENT_B_BIT	0
+#define MOVEMENT_PORT	PORTB
+#define MOVEMENT_DDR	DDRB
+#define MOVEMENT_BIT	4
 
-// Display LED anode
 
-#define LED_PORT	PORTB
-#define LED_DDR		DDRB
-#define LED_BIT		0
+// Unused pin. Currently unconnected.
+
+#define UNUSEDPIN_PORT	PORTB
+#define UNUSEDPIN_DDR	DDRB
+#define UNUSEDPIN_BIT	0
+
+
+// Push button
+
+#define BUTTON_PORT		PORTB
+#define BUTTON_DDR		DDRB
+#define BUTTON_PIN		PINB
+#define BUTTON_BIT		0
+#define BUTTON_PCMSK	PCINT0			// Set this bit in PCMSK to enable pin change interrupt
+#define BUTTON_VECT		PCINT0_vect		// Vector called on pin change interrupt
+
+
+void disableButton() {
+
+	CLRBIT( PCMSK , BUTTON_PCMSK );	   // Disable change interrupt on this pin. 
+	CLRBIT( BUTTON_PORT , BUTTON_BIT); // Disable pull-up
+	SETBIT( BUTTON_DDR , BUTTON_BIT ); // Drive low to keep from floating. Pushing button will have no effect and waste no power since it is just connecting pin to ground.
+	
+}
+
+// Returns true if button is pressed
+
+uint8_t buttonDown() {
+	return !GETBIT( BUTTON_PIN ,  BUTTON_BIT );			// NOTed because pushing button grounds pin
+	
+}
+
 
 void movement_mid_h() {
-	SETBIT(MOVEMENT_A_PORT , MOVEMENT_A_BIT);		// Pull-up on
-	SETBIT(MOVEMENT_A_DDR  , MOVEMENT_A_BIT);		// Full drive on	
+	SETBIT(MOVEMENT_PORT , MOVEMENT_BIT);		// Pull-up on
+	SETBIT(MOVEMENT_DDR  , MOVEMENT_BIT);		// Full drive on	
 }
 
 void movement_mid_l() {
-	SETBIT(MOVEMENT_A_DDR  , MOVEMENT_A_BIT);		// Full drive on	
+	SETBIT(MOVEMENT_DDR  , MOVEMENT_BIT);		// Full drive on	
 }
 
 // Turn on the pin that drives the movement Lavet motor.
@@ -76,47 +115,17 @@ void movement_mid_l() {
 void movement_mid_on( uint8_t phase ) {
 	
 	if (phase) {
-		SETBIT(MOVEMENT_A_PORT , MOVEMENT_A_BIT);		// Pull-up on
+		SETBIT(MOVEMENT_PORT , MOVEMENT_BIT);		// Pull-up on
 	}
 	
-	SETBIT(MOVEMENT_A_DDR  , MOVEMENT_A_BIT);		// Full drive high or low depending on PORT as set by phase
+	SETBIT(MOVEMENT_DDR  , MOVEMENT_BIT);		// Full drive high or low depending on PORT as set by phase
 		
 }
 
 void movement_mid_off() {
-	CLRBIT(MOVEMENT_A_DDR  , MOVEMENT_A_BIT);		// turn off drive
-	CLRBIT(MOVEMENT_A_PORT , MOVEMENT_A_BIT);		// turn off Pull-up 
+	CLRBIT(MOVEMENT_DDR  , MOVEMENT_BIT);		// turn off drive
+	CLRBIT(MOVEMENT_PORT , MOVEMENT_BIT);		// turn off Pull-up 
 }
-
-
-void movement_activate() {
-	SETBIT( MOVEMENT_A_DDR , MOVEMENT_A_BIT);
-	SETBIT( MOVEMENT_B_DDR , MOVEMENT_B_BIT);
-}
-
-void movement_phase_1_on(){
-	SETBIT( MOVEMENT_A_PORT , MOVEMENT_A_BIT );
-}
-
-void movement_phase_1_off(){
-	CLRBIT( MOVEMENT_A_PORT , MOVEMENT_A_BIT );
-}
-
-
-void movement_phase_2_on(){
-	SETBIT( MOVEMENT_B_PORT , MOVEMENT_B_BIT );	
-}
-
-void movement_phase_2_off(){
-	CLRBIT( MOVEMENT_B_PORT , MOVEMENT_B_BIT );
-}
-
-
-void movement_idle() {
-	CLRBIT( MOVEMENT_A_DDR , MOVEMENT_A_BIT);
-	CLRBIT( MOVEMENT_B_DDR , MOVEMENT_B_BIT);
-}	
-
 
 
 // ****** RX8900 stuff
@@ -209,6 +218,7 @@ void rx8900_fixed_timer_set_count( uint16_t c ) {
 	rx8900_reg_set( RX8900_TC1_REG , c / 0xff );		// High nibble of count value
 }
 
+
 void rx8900_fixed_timer_set_seconds( unsigned s ) {
 	
 	rx8900_fixed_timer_set_count(s);
@@ -225,16 +235,6 @@ void rx8900_fixed_timer_set_minutes( unsigned s ) {
 
 }
 
-
-// Set FOUT on the RX8900 to 1Hz (default 32Khz)
-// Note that FOE must also be high for output
-
-void rx8900_set_int(void) {
-
-	const uint8_t ex_reg = 0b00100011;
-	rx8900_ex_reg_set(ex_reg);
-
-}
 
 
 void rx8900_init() {
@@ -265,8 +265,8 @@ void rx8900_setup(void) {
 // Called when watchdog expires
 EMPTY_INTERRUPT( WDT_vect);
 
-// Called on pin change interrupt
-EMPTY_INTERRUPT( PCINT0_vect );
+// Called on button pin change interrupt
+EMPTY_INTERRUPT( BUTTON_VECT );
 
 // Called on INT0 pin interrupt
 EMPTY_INTERRUPT( INT0_vect );
@@ -302,28 +302,27 @@ void sleep32ms() {
 // routing takes ~50ms we know that the /INT will be reset by the time we go back to sleep. 
 
 void sleepUntilISR() {
-	SETBIT( RX8900_INT_PORT ,RX8900_INT_BIT );	// Enable pull up
-	while ( !GETBIT( RX8900_INT_PORT ,RX8900_INT_BIT  ) );
+	SETBIT( RX8900INT_PORT ,RX8900INT_BIT );	// Enable pull up
+	while ( !GETBIT( RX8900INT_PORT ,RX8900INT_BIT  ) );
 	sleep_cpu();	
-	CLRBIT( RX8900_INT_PORT ,RX8900_INT_BIT );	// Disable pull up	
+	CLRBIT( RX8900INT_PORT ,RX8900INT_BIT );	// Disable pull up	
 }
+
+
 
 void setup() {
 	
-	
-	// Enable pull-up on /INT pin. This is open-drain output on the RX8900 so we need to pull it up with the ATTINY.
-	SETBIT( RX8900_INT_PORT , RX8900_INT_BIT );		
-	_delay_ms(20);									// Give time for pull-up to change the voltage on the pin (50K resistor)
-	
 		
-	// Enable interrupt on pin change to wake us every time the fixed-cycle timer pulls /INT low.
+	// Enable interrupt on pin change.
+	// " Any change on any enabled PCINT[5:0] pin will cause an interrupt. T"
+	// Note that individual pins must also be enabled in the mask
+	// Used to wake us every time the fixed-cycle timer pulls /INT low or when button is pressed (each must be enabled in PCMSK) 
 	SETBIT( GIMSK  , PCIE );				//When the PCIE bit is set (one) and the I-bit in the Status Register (SREG) is set (one), pin change interrupt is enabled.
 	
 	// Set up to deep sleep between interrupts
 	sleep_enable();							// How to do once to enable sleep
 	set_sleep_mode(SLEEP_MODE_PWR_DOWN);	// Lowest power, can wake on interrupts (pin change, WDT)
 			
-	SETBIT( PORTB , 0 );			// Pull up the currently unused pin so it does not float around. 
 
 	// Activate the RTC pins
 	rx8900_init();
@@ -332,24 +331,20 @@ void setup() {
 	rx8900_setup();
 	
 //	rx8900_fixed_timer_set_seconds( 2.5 * 60 );		// 2 1/2 mins per quadrant - 10 minutes all the way around
-
-	rx8900_fixed_timer_set_seconds( 1 );		// 2 1/2 mins per quadrant - 10 minutes all the way around
-
-	
-	sei();									// Allow interrupts (so we can wake on them)
 	
 }
 
 
-// Spin around aimlessly forever
+// Spin at full speed the specified number of ticks (0-3600)
 // It takes about 6 minutes to go all the way around (3600 steps * 100ms/step)
 // (not exact because it depends on the watchdog timer to measure 48ms per half step)
+// Returns the current phase when done (0 or 1)
 
-void spin() {
+uint8_t spin( uint16_t ticks ) {
 	
 	uint8_t phase = 0 ;
 	
-	while (1)  {
+	while (ticks--)  {
 		
 		movement_mid_on(phase);
 		//_delay_ms(50);
@@ -359,11 +354,45 @@ void spin() {
 		movement_mid_off();
 		sleep16ms();
 		sleep32ms();
-		//_delay_ms(25);
-		phase = phase ? 0 : 1;
+		phase = !phase;
 	}
+	
+	return phase;
 
 }
+
+
+// Spin at full speed the specified number of ticks (0-3600)
+// It takes about 6 minutes to go all the way around (3600 steps * 100ms/step)
+// (not exact because it depends on the watchdog timer to measure 48ms per half step)
+// Returns the current phase when done (0 or 1)
+// This version does not use any interrupts. 
+
+uint8_t spin_noINT( uint16_t ticks ) {
+	
+	uint8_t phase = 0 ;
+	
+	while (ticks--)  {
+		
+		movement_mid_on(phase);
+		_delay_ms(50);
+		
+		movement_mid_off();
+		_delay_ms(50);
+		
+		phase = phase ? 0 : 1;
+	}
+	
+	return phase;
+
+}
+
+
+// Run the clock normally, moving the hand one step per tick. Runs forever. 
+// The tick is generated by the RX8900 ~INT pin, and the frequency that this
+// pin generates a tick is controlled by the Timer Counter (TC) register and TSEL bits.
+// Assumes interrupts on, global pin change enabled, /INT pin pulled up, RX8900 programmed to generate /INT signal, and /INT pin mask enabled. 
+// Never returns.
 
 void normalStepMode() {
 	
@@ -371,120 +400,128 @@ void normalStepMode() {
 	 
 	while (1) {
 		
-		CLRBIT( RX8900_INT_PORT , RX8900_INT_BIT );	// Disable pull up. /INT Will be pulled low by RTC for ~7ms, so no need to waste power though the pull up.
+		sleep_cpu();			// Wait for /INT to wake us
+				
+		CLRBIT( RX8900INT_PORT , RX8900INT_BIT );	// Disable pull up. /INT Will be pulled low by RTC for ~7ms, so no need to waste power though the pull up.
 
 		// Disable /INT interrupt here to avoid spurious interrupt when /INT rises from waking us from WDT sleep.
-		CLRBIT( PCMSK , RX8900_INT_INT );		// Disable interrupt on /INT pin change. This will prevent us from waking from the WDT delay sleep when this pin floats after the RTC stops pulling it low.
+		CLRBIT( PCMSK , RX8900INT_PCMSK );		// Disable interrupt on /INT pin change. This will prevent us from waking from the WDT delay sleep when this pin floats after the RTC stops pulling it low.
 		SETBIT( DIDR0 , ADC1D );				// Turn off digital input buffer on the pin connected to /INT so will not waste power when it floats when RTC stops pulling it low.
 
 		movement_mid_on(phase);
 		phase = !phase;		
 		
 		sleep16ms();
-		SETBIT( RX8900_INT_PORT , RX8900_INT_BIT );		// OK, /INT should be reset by the time we get here, so turn on the pull up again. This will give it time to pull the voltage back up by the time we are ready to sleep again.
+		SETBIT( RX8900INT_PORT , RX8900INT_BIT );		// OK, /INT should be reset by the time we get here, so turn on the pull up again. This will give it time to pull the voltage back up by the time we are ready to sleep again.
 		
 				
 		sleep32ms();
 		movement_mid_off();
 
 		CLRBIT( DIDR0 , ADC1D );				// Enable digital input buffer on the pin connected to /INT so we will see when RTC pulls it low
-		SETBIT( PCMSK , RX8900_INT_INT );		// Enable interrupt on /INT pin change to wake us when RTC says we are ready for next tick.
+		SETBIT( PCMSK , RX8900INT_PCMSK );		// Enable interrupt on /INT pin change to wake us when RTC says we are ready for next tick.
 					
-		sleep_cpu();
 					
 	}	
 	
+	__builtin_unreachable();
+	
 }
+
+// Low power wait for the button to be pressed. Assumes no other interrupts running.
+// Assumes interrupts enabled and PCIE enabled in GIMSK, but no other interrupts on.
+// Returns with button interrupt disabled. 
+
+void waitButtonPress() {
+	
+	// Enable the hardware
+
+	sleep32ms();					   // Give pull-up time to raise voltage on pin to avoid spurious change	
+	
+		
+	while (!buttonDown());			// Wait for button to be pressed before starting.
+	
+	disableButton();
+	
+	sei();
+	
+	
+}
+
+#define TICKS_PER_ROTATION (3600)
+
+#define LUNARMONTH_SECS (2551443UL)			//https://www.justintools.com/unit-conversion/time.php?k1=lunar-months&k2=seconds
+#define LUNARMONTH_SECS_PER_TICK ( LUNARMONTH_SECS / TICKS_PER_ROTATION )
+
+#define SOLARDAY_SECS (60UL*60*24)			
+#define SOLARDAY_SECS_PER_TICK ( SOLARDAY_SECS/ TICKS_PER_ROTATION )
+
+
+// TODO: This does not work out exactly, so do a Bresenham's style error track and adjust 
 
 int main(void)
 {
-
-	setup();
 	
-	normalStepMode();
 	
-	//spin();
-
-    while (1) 
-    {
-		/*		
-		for( int i=0; i<pulse_count; i++) {
-			movement_phase_1_on();
-			_delay_ms(on_time_ms);
-			movement_phase_1_off();
-			_delay_ms(off_time_ms);
-		}
-		
-		//sleep1s();
-		sleepUntilISR();
-
-		for( int i=0; i<pulse_count; i++) {
-			movement_phase_2_on();
-			_delay_ms(on_time_ms);
-			movement_phase_2_off();
-			_delay_ms(off_time_ms);			
-		}
-		
-		//sleep1s();
-		
-		sleepUntilISR();
-		*/
-		
-		/*
-		movement_phase_1_on();
-		_delay_ms(20);
-		movement_phase_1_off();
-		
-		//sleep1s();
-		sleepUntilISR();
-
-		movement_phase_2_on();
-		_delay_ms(20);
-		movement_phase_2_off();
-		//sleep1s();
-		
-		sleepUntilISR();
-		*/
-		
-
-		uint8_t phase =0;
-
-		while (1) {
+	// *** First set up all pins and pull-ups
+	
+	SETBIT( BUTTON_PORT , BUTTON_BIT);				// Enable button pull-up. Button connects pin to ground.
+	
+	SETBIT( RX8900INT_PORT , RX8900INT_BIT );		// Enable pull-up on /INT pin. This is open-drain output on the RX8900 so we need to pull it up with the ATTINY.
+	
+	SETBIT( UNUSEDPIN_DDR , UNUSEDPIN_BIT );		// Drive the unused pin low. This pin is connected so we don't want it to float and waste power. 
+	
+	i2c_init();										// This activates the pull-ups on the i2c SDA and SCL pins. 
+	
+	_delay_ms(10);		// Give the pull-ups a chance to pull the voltages. Don't use the WDT-based waits because they might get interrupted by the above changing pins. 
+	
+	// *** Global interrupt preparation
+	
+	// Enable interrupt on pin change.
+	// " Any change on any enabled PCINT[5:0] pin will cause an interrupt. T"
+	// Note that individual pins must also be enabled in the mask
+	// Used to wake us every time the fixed-cycle timer pulls /INT low or when button is pressed (each must be enabled in PCMSK)
+	SETBIT( GIMSK  , PCIE );				//When the PCIE bit is set (one) and the I-bit in the Status Register (SREG) is set (one), pin change interrupt is enabled.
+	
+	sei();			// And finally ready to actually enable interrupts. Still need to enable individual pins in the mask as needed.
+	
+	// *** Enable sleeping mode
+	
+	sleep_enable();							// Do once to enable sleep forever
+	set_sleep_mode(SLEEP_MODE_PWR_DOWN);	// Lowest power, can wake on interrupts (pin change, WDT)		
 			
-			CLRBIT( RX8900_INT_PORT , RX8900_INT_BIT );	// Disable pull up. /INT Will be pulled low by RTC for ~7ms, so no need to waste power though the pull up.
 
-			// Disable /INT interrupt here to avoid spurious interrupt when /INT rises from waking us from WDT sleep.			
-			CLRBIT( PCMSK , RX8900_INT_INT );		// Disable interrupt on /INT pin change. This will prevent us from waking from the WDT delay sleep when this pin floats after the RTC stops pulling it low. 		
-			SETBIT( DIDR0 , ADC1D );				// Turn off digital input buffer on the pin connected to /INT so will not waste power when it floats when RTC stops pulling it low.
+	// *** Wait for a button press to get us started		
+	
+	SETBIT( PCMSK , BUTTON_PCMSK );	   // Enable change interrupt on this pin. You must also sei() and enable PCIE in GIMSK to enable all pin change interrupts
+	
+	sleep_cpu();						// Sleep - we will wake up when button state changes.
 
-			for( int i=0; i< 60 * 15 ; i++ ) {		// go 1/4 way around every 2.5 minutes (10 minutes all the way around)
-			
-				movement_mid_on(phase);			
-				sleep16ms();
-				SETBIT( RX8900_INT_PORT , RX8900_INT_BIT );		// OK, /INT should be reset by the time we get here, so turn on the pull up again. This will give it time to pull the voltage back up by the time we are ready to sleep again. 
-				sleep32ms();		
-				movement_mid_off();
-				sleep16ms();
-				sleep32ms();
-				phase = !phase;
-				
-			}
-			
-			
-			//_delay_ms(10000);
-			
-			CLRBIT( DIDR0 , ADC1D );				// Enable digital input buffer on the pin connected to /INT so we will see when RTC pulls it low
-			SETBIT( PCMSK , RX8900_INT_INT );		// Enable interrupt on /INT pin change to wake us when RTC says we are ready for next tick. 
+	CLRBIT( PCMSK , BUTTON_PCMSK );	   // Disable the interrupt that got us here.
 
-			sleep_cpu();
+	
+	CLRBIT( BUTTON_PORT , BUTTON_BIT );		// Disable the pull-up
+	SETBIT( BUTTON_DDR , BUTTON_BIT );		// Drive button pin low so it will not use any power (we never need to check it again)
+											// Note we do not leave pull-up on since then would use power as long as button is pressed. 
+
+	// *** Show we woke	
+		
+	spin(TICKS_PER_ROTATION/2);			// One half time around to make sure we are working
+	
+	
+	// *** Enable interrupt on /INT signal from RTC
+
+	SETBIT( PCMSK , RX8900INT_PCMSK );	   // Enable change interrupt on /INT pin change from RTC. 
+
+	
+	// *** Program RTC to generate /INT signal period
+	
+	//rx8900_fixed_timer_set_seconds( SOLARDAY_SECS_PER_TICK );		
+	rx8900_fixed_timer_set_seconds( LUNARMONTH_SECS_PER_TICK );
 			
-			//sei();
-			//sleepUntilISR();
-			//sei();
-			//sleep_cpu();			
-			//_delay_ms(100);
-		}
-				
-    }
+	normalStepMode();			// Start stepping, never returns
+	
+	__builtin_unreachable();
+		
 }
 

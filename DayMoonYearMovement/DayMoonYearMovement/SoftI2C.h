@@ -554,14 +554,13 @@ bool  i2c_start_wait(uint8_t addr)
 #endif
     " rjmp	_Li2c_start_wait1	;device busy, poll ack again \n\t" 
     "_Li2c_start_wait_done: \n\t"
-    " clr       r25                     ;clear high byte of return value\n\t"
     " pop       __tmp_reg__             ;pop off orig argument \n\t"
-    " ret "
     : : [SDADDR] "I"  (SDA_DDR), [SDAPIN] "I" (SDA_PIN), [SDAOUT] "I" (SDA_OUT),
       [SCLIN] "I" (SCL_IN), [SCLPIN] "I" (SCL_PIN),
       [HIMAXWAIT] "M" (I2C_MAXWAIT>>8), 
       [LOMAXWAIT] "M" (I2C_MAXWAIT&0xFF)
     : "r30", "r31" ); 
+	return 0; 
 }
 #endif
 

@@ -13,7 +13,7 @@ https://www.kickstarter.com/projects/scottthrift/the-present-day-moon-year
 * Autoset feature lets user automatically move the hand to the correct time position when commissioned in the field 
 * Uses a very accurate internal RX8900 real time clock (RTC) chip with temperature compensation that is good to +/-3ppm
 * Uses cheap and common ATTINY25 microcontroller (MCU) chip
-* Extremely low power - can run for decades or more on 2xAA
+* Extremely low power - can run for decades or more on 2xAA batteries
 
 ## Usage
 
