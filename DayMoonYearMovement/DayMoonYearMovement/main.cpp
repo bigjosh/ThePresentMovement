@@ -456,6 +456,10 @@ void waitButtonPress() {
 #define SOLARDAY_SECS (60UL*60*24)			
 #define SOLARDAY_SECS_PER_TICK ( SOLARDAY_SECS/ TICKS_PER_ROTATION )
 
+#define TROPICALYEAR_SECS ()
+#define TROPICALYEAR_SECS_PER_TICK ( SOLARDAY_SECS/ TICKS_PER_ROTATION )
+
+
 
 // TODO: This does not work out exactly, so do a Bresenham's style error track and adjust 
 
@@ -517,7 +521,9 @@ int main(void)
 	// *** Program RTC to generate /INT signal period
 	
 	//rx8900_fixed_timer_set_seconds( SOLARDAY_SECS_PER_TICK );		
-	rx8900_fixed_timer_set_seconds( LUNARMONTH_SECS_PER_TICK );
+	//rx8900_fixed_timer_set_seconds( LUNARMONTH_SECS_PER_TICK );
+	rx8900_fixed_timer_set_seconds( TROPICALYEAR_SECS_PER_TICK );
+			
 			
 	normalStepMode();			// Start stepping, never returns
 	
