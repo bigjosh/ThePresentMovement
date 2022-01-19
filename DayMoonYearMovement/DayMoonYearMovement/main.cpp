@@ -456,9 +456,18 @@ void waitButtonPress() {
 #define SOLARDAY_SECS (60UL*60*24)			
 #define SOLARDAY_SECS_PER_TICK ( SOLARDAY_SECS/ TICKS_PER_ROTATION )
 
-#define TROPICALYEAR_SECS ()
+#define TROPICALYEAR_SECS (31556925UL)
 #define TROPICALYEAR_SECS_PER_TICK ( SOLARDAY_SECS/ TICKS_PER_ROTATION )
 
+// Human life is long enough that we have to switch to minutes
+
+#define HUMANLIFE_YEARS (120)
+#define SECS_PER_MIN (60)
+
+#define MINS_PER_TROPICALYEAR (TROPICALYEAR_SECS/SECS_PER_MIN)
+
+#define HUMANLIFE_MINS (HUMANLIFE_YEARS*MINS_PER_TROPICALYEAR)
+#define HUMANLIFE_MINS_PER_TICK (HUMANLIFE_MINS / TICKS_PER_ROTATION )		// About 17,000 mins per tick. TODO: Add error correction here to account for minute aliasing
 
 
 // TODO: This does not work out exactly, so do a Bresenham's style error track and adjust 
@@ -510,9 +519,14 @@ int main(void)
 
 	// *** Show we woke	
 		
-	spin(TICKS_PER_ROTATION/2);			// One half time around to make sure we are working
+	#define SECS_PER_SCOTTLIFE (1335721787UL)
+	#define MINS_PERSCOTTLIFE (SECS_PER_SCOTTLIFE/SECS_PER_MIN)
 	
+	// The numbers are just too big for even long ints, so use a float. 
+	const double HUMANLIFE_SECS =  (1.0 * HUMANLIFE_YEARS * TROPICALYEAR_SECS);
 	
+	spin( (unsigned) ( (SECS_PER_SCOTTLIFE / HUMANLIFE_SECS ) * 3600.0) );			
+		
 	// *** Enable interrupt on /INT signal from RTC
 
 	SETBIT( PCMSK , RX8900INT_PCMSK );	   // Enable change interrupt on /INT pin change from RTC. 
@@ -522,7 +536,7 @@ int main(void)
 	
 	//rx8900_fixed_timer_set_seconds( SOLARDAY_SECS_PER_TICK );		
 	//rx8900_fixed_timer_set_seconds( LUNARMONTH_SECS_PER_TICK );
-	rx8900_fixed_timer_set_seconds( TROPICALYEAR_SECS_PER_TICK );
+	rx8900_fixed_timer_set_minutes( HUMANLIFE_MINS_PER_TICK );
 			
 			
 	normalStepMode();			// Start stepping, never returns
@@ -530,4 +544,3 @@ int main(void)
 	__builtin_unreachable();
 		
 }
-
