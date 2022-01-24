@@ -526,18 +526,18 @@ int main(void)
 	#define SECS_PER_SCOTTLIFE (1335721787UL)
 	#define MINS_PERSCOTTLIFE (SECS_PER_SCOTTLIFE/SECS_PER_MIN)
 
-/*
+
 	
 	// The numbers are just too big for even long ints, so use a float. 
 	const double HUMANLIFE_SECS =  (1.0 * HUMANLIFE_YEARS * TROPICALYEAR_SECS);
 	
 	spin( (unsigned) ( (SECS_PER_SCOTTLIFE / HUMANLIFE_SECS ) * 3600.0) );			
 	
-*/
+
 
 
 	//spin(  TICKS_PER_ROTATION / 2  );		// Make 180 deg rotation on button press to show we are working
-	spin(  100 );		// Make 180 deg rotation on button press to show we are working
+	//spin(  100 );		// Make 180 deg rotation on button press to show we are working
 
 		
 	// *** Enable interrupt on /INT signal from RTC
@@ -547,10 +547,10 @@ int main(void)
 	
 	// *** Program RTC to generate /INT signal period
 	rx8900_setup();	
-	rx8900_fixed_timer_set_seconds( HOUR_SECS_PER_TICK );		
+	//rx8900_fixed_timer_set_seconds( HOUR_SECS_PER_TICK );		
 	//rx8900_fixed_timer_set_seconds( SOLARDAY_SECS_PER_TICK );	
 	//rx8900_fixed_timer_set_seconds( LUNARMONTH_SECS_PER_TICK );
-	//rx8900_fixed_timer_set_minutes( HUMANLIFE_MINS_PER_TICK );
+	rx8900_fixed_timer_set_minutes( HUMANLIFE_MINS_PER_TICK );
 						
 	normalStepMode();			// Start stepping, never returns
 	
