@@ -547,31 +547,13 @@ int main(void)
 	
 	// Set the fixed timer period count
 	// (we will specify if this count is minutes or seconds when we start the fixed timer
-	rx8900_fixed_timer_set_count(3);
-	
-	// START TESTING
-	
-	
-	SETBIT(MOVEMENT_DDR  , MOVEMENT_BIT);			
-	
-	_delay_ms(5000);
-	
-	SETBIT(MOVEMENT_PORT  , MOVEMENT_BIT);
-	
-	// Enable /INT out on fixed timer, 2 second temp comp, RESET counters to 0
-	
-	rx8900_reg_set( RX8900_CONTROL_REG , 0b01010001 );	
-	
-	rx8900_fixed_timer_start_secs();
-	
-	CLRBIT(MOVEMENT_PORT  , MOVEMENT_BIT);
-	
-	while(1);
-	
-	// END TEST
-	
 
+
+	// Minutes in a year
+	// https://www.google.com/search?q=%28%281+years%29%2F%283600%29%29+in+minutes
+	rx8900_fixed_timer_set_count(146);
 	
+		
 	
 	// *** Enable sleeping mode
 	
@@ -591,6 +573,15 @@ int main(void)
 	CLRBIT( BUTTON_PORT , BUTTON_BIT );		// Disable the pull-up
 	SETBIT( BUTTON_DDR , BUTTON_BIT );		// Drive button pin low so it will not use any power (we never need to check it again)
 											// Note we do not leave pull-up on since then would use power as long as button is pressed. 
+											
+	// *** Start out clock from this moment the button is pressed (behavior for now)												
+
+	// Enable /INT out on fixed timer, 2 second temp comp, RESET all counters to 0	
+	// We really only care about the reset, but have to do the other bits in the Register at the same time. 
+	rx8900_reg_set( RX8900_CONTROL_REG , 0b01010001 );
+	
+	rx8900_fixed_timer_start_mins();
+	
 
 	// *** Show we woke	
 		
@@ -609,14 +600,12 @@ int main(void)
 	// Start the fixed cycle timer (we set up the timer and specified the count above)
 	//rx8900_fixed_timer_start_secs();	
 
-	//spin(  TICKS_PER_ROTATION / 2  );		// Make 180 deg rotation on button press to show we are working
+	spin(  TICKS_PER_ROTATION / 2  );		// Make 180 deg rotation on button press to show we are working
 	
-	rx8900_fixed_timer_start_secs();
-	spin(  1 );		// Make 180 deg rotation on button press to show we are working
-	
-	
-	normalStepMode();
 		
+	normalStepMode();
+
+/*		
 
 	//rx8900_fixed_timer_set_seconds( 2 );
 	
@@ -628,6 +617,8 @@ int main(void)
 	//rx8900_fixed_timer_set_minutes(  1  );
 						
 	normalStepMode();			// Start stepping, never returns
+	
+*/	
 	
 	__builtin_unreachable();
 		
