@@ -120,13 +120,27 @@ The ATTINY uses <0.1uA while sleeping and it spends the vast majority of its lif
 
 The RX8900 uses on average ~0.7uA at 3V.
 
-Total constant current draw is XXXX. 
+Total constant current draw is ~1uA between ticks. 
 
-Each tick additionally consumes XXX joules. 
+Each tick additionally consumes an average of ~3.5mA over ~50ms, for a total of about 6.1mW. Remember that each tick only draws on one of the two batteries.  
 
-(Values pending testing of the final PCB version)
+#### Battery life estimates
 
-(Here we will compute projected power usage and battery lifetimes for each mode) 
+##### Day
 
+(1 rotation/day)/(3600 ticks/rotation) = 3600 ticks/day
+(3600 ticks/day) * (365 days/year) = 1314000 ticks/year
+
+(1314000 ticks/year) * (50 ms/tick) * (3.5 mA)
+
+(2600 milli amp hour / battery)
+
+(1uA constant draw)
+
+Run time = ~35 years
+ 
+https://frinklang.org/fsp/frink.fsp?fromVal=tick+%3D%21%3D+t%3B+%282600+milliamp+hour%29%2F%28+%281314000+t%2Fyear%29+*+%2850+ms%2Ft%29+*+%283.5+mA%29%29&toVal=years#calc
+
+No point in doing the other modes since we are already way past where battery capacity is the limiting factor on lifetime!
 
 
