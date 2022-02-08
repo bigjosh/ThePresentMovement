@@ -208,10 +208,33 @@ void rx8900_fout_32KHz(void) {
 
 }
 
+
+void rx8900_fixed_timer_stop() {
+
+	rx8900_reg_set( RX8900_EXTENTION_REG , 0b00101010); // Disable fixed timer so when we start, it starts at the top of the period
+	
+}
+
+// Start fixed timer with period minutes whatever last set in set_fixed_time_count()
+
+void rx8900_fixed_timer_start_mins() {
+
+	rx8900_reg_set( RX8900_EXTENTION_REG , 0b00111011); // Enable fixed timer, 1-minute base clock
+	
+}
+
+// Start fixed timer with period seconds whatever last set in set_fixed_time_count()
+
+void rx8900_fixed_timer_start_secs() {
+
+	rx8900_reg_set( RX8900_EXTENTION_REG , 0b00111010); // Enable fixed timer, 1-second base clock
+	
+}
+
+
 // Set the RX8900 counts between INT events (MAX = 4195)
 // A count can be a second or a minute (and others we don't care about) depending on TSEL bits.
 // Count starts when TE bit enabled
-
 
 void rx8900_fixed_timer_set_count( uint16_t c ) {	
 	rx8900_reg_set( RX8900_TC0_REG , c & 0xff );		// Low byte of count value (in seconds)
@@ -220,6 +243,8 @@ void rx8900_fixed_timer_set_count( uint16_t c ) {
 
 
 void rx8900_fixed_timer_set_seconds( unsigned s ) {
+
+	rx8900_reg_set( RX8900_EXTENTION_REG , 0b00101010); // Disable fixed timer so when we start, it starts at the top of the period
 	
 	rx8900_fixed_timer_set_count(s);
 
@@ -228,6 +253,8 @@ void rx8900_fixed_timer_set_seconds( unsigned s ) {
 }
 
 void rx8900_fixed_timer_set_minutes( unsigned s ) {
+	
+	rx8900_reg_set( RX8900_EXTENTION_REG , 0b00101010); // Disable fixed timer so when we start, it starts at the top of the period	
 	
 	rx8900_fixed_timer_set_count(s);
 	
@@ -245,9 +272,14 @@ void rx8900_init() {
 // Called anytime the RX8900 has seen low voltage (VLF)
 // Sets all the control registers to known values
 // Clears the flags, so make sure you save any that you need before calling
+// stops any running fixed cycle counter
 // Does not reset the time counter
 
 void rx8900_setup(void) {
+
+	// Stop any running fixed timer
+	
+	rx8900_fixed_timer_stop();
 
 	// Enable /INT out on fixed timer, 2 second temp comp
 	
@@ -502,6 +534,44 @@ int main(void)
 	SETBIT( GIMSK  , PCIE );				//When the PCIE bit is set (one) and the I-bit in the Status Register (SREG) is set (one), pin change interrupt is enabled.
 	
 	sei();			// And finally ready to actually enable interrupts. Still need to enable individual pins in the mask as needed.
+
+	// Get timer settings ready (will start it later)	
+	
+	// *** Program RTC to generate /INT signal period
+	// (also will start any previously running fixed timer)
+	rx8900_setup();
+
+
+	// *** Enable interrupt on /INT signal from RTC
+	SETBIT( PCMSK , RX8900INT_PCMSK );	   // Enable change interrupt on /INT pin change from RTC.
+	
+	// Set the fixed timer period count
+	// (we will specify if this count is minutes or seconds when we start the fixed timer
+	rx8900_fixed_timer_set_count(3);
+	
+	// START TESTING
+	
+	
+	SETBIT(MOVEMENT_DDR  , MOVEMENT_BIT);			
+	
+	_delay_ms(5000);
+	
+	SETBIT(MOVEMENT_PORT  , MOVEMENT_BIT);
+	
+	// Enable /INT out on fixed timer, 2 second temp comp, RESET counters to 0
+	
+	rx8900_reg_set( RX8900_CONTROL_REG , 0b01010001 );	
+	
+	rx8900_fixed_timer_start_secs();
+	
+	CLRBIT(MOVEMENT_PORT  , MOVEMENT_BIT);
+	
+	while(1);
+	
+	// END TEST
+	
+
+	
 	
 	// *** Enable sleeping mode
 	
@@ -536,25 +606,26 @@ int main(void)
 	
 */
 
+	// Start the fixed cycle timer (we set up the timer and specified the count above)
+	//rx8900_fixed_timer_start_secs();	
 
 	//spin(  TICKS_PER_ROTATION / 2  );		// Make 180 deg rotation on button press to show we are working
-	spin(  100 );		// Make 180 deg rotation on button press to show we are working
-
-		
-	// *** Enable interrupt on /INT signal from RTC
-
-	SETBIT( PCMSK , RX8900INT_PCMSK );	   // Enable change interrupt on /INT pin change from RTC. 
-
 	
-	// *** Program RTC to generate /INT signal period
-	rx8900_setup();	
+	rx8900_fixed_timer_start_secs();
+	spin(  1 );		// Make 180 deg rotation on button press to show we are working
+	
+	
+	normalStepMode();
+		
+
 	//rx8900_fixed_timer_set_seconds( 2 );
 	
-//	rx8900_fixed_timer_set_seconds( HOUR_SECS_PER_TICK );		
+	rx8900_fixed_timer_set_seconds( 4 );		
 	//rx8900_fixed_timer_set_seconds( SOLARDAY_SECS_PER_TICK );	
 	//rx8900_fixed_timer_set_seconds( LUNARMONTH_SECS_PER_TICK );
 	//rx8900_fixed_timer_set_minutes( HUMANLIFE_MINS_PER_TICK );
-	rx8900_fixed_timer_set_minutes(  TROPICALYEAR_MINS_PER_TICK );
+	//rx8900_fixed_timer_set_minutes(  TROPICALYEAR_MINS_PER_TICK );
+	//rx8900_fixed_timer_set_minutes(  1  );
 						
 	normalStepMode();			// Start stepping, never returns
 	
