@@ -551,9 +551,11 @@ int main(void)
 
 	// Minutes in a year
 	// https://www.google.com/search?q=%28%281+years%29%2F%283600%29%29+in+minutes
-	rx8900_fixed_timer_set_count(146);
+	//rx8900_fixed_timer_set_count(146);
 	
-		
+	// One rotation per day per 24 hours = 24 seconds per tick (1 second per tick= 1 hour per rotation)
+	rx8900_fixed_timer_set_count( 24 );
+			
 	
 	// *** Enable sleeping mode
 	
@@ -580,7 +582,9 @@ int main(void)
 	// We really only care about the reset, but have to do the other bits in the Register at the same time. 
 	rx8900_reg_set( RX8900_CONTROL_REG , 0b01010001 );
 	
-	rx8900_fixed_timer_start_mins();
+	// rx8900_fixed_timer_start_mins();
+	rx8900_fixed_timer_start_secs();
+
 	
 
 	// *** Show we woke	
@@ -600,7 +604,7 @@ int main(void)
 	// Start the fixed cycle timer (we set up the timer and specified the count above)
 	//rx8900_fixed_timer_start_secs();	
 
-	spin(  TICKS_PER_ROTATION / 2  );		// Make 180 deg rotation on button press to show we are working
+	//spin(  TICKS_PER_ROTATION / 2  );		// Make 180 deg rotation on button press to show we are working
 	
 		
 	normalStepMode();
