@@ -11,7 +11,21 @@
 #include <avr/interrupt.h>
 #include <avr/sfr_defs.h>		// _BV()
 
-#define F_CPU 1000000
+// From the factory, the CLKDIV8 fuse is set, to we are only running at 1Mhz
+// This will switch us to full speed 8Mhz, which is fine becuase we know we will have >3V from the 2xAA batteries. 
+
+void fullSpeedClock() {
+	CLKPR = (1<<CLKPCE); // Prescaler enable
+	CLKPR = 0; // Clock division factor 1 (8Mhz)
+}
+
+void div8Clock() {
+	CLKPR = (1<<CLKPCE); // Prescaler enable
+	CLKPR = (1<<CLKPS1 || 1<<CLKPS0); // Clock division factor 8 (1Mhz)
+}
+
+
+#define F_CPU 8000000		// Assumes fullSpeedClock() above has been called
 #include <util/delay.h>
 #include <util/delay_basic.h>
 
@@ -310,11 +324,11 @@ void rx8900_setup(void) {
 // Called when watchdog expires
 EMPTY_INTERRUPT( WDT_vect);
 
-// Called on button pin change interrupt
-EMPTY_INTERRUPT( BUTTON_VECT );
-
 // Called on INT0 pin interrupt
 EMPTY_INTERRUPT( INT0_vect );
+
+// Called on pin change interrupt (from the RTC or button depending on when pins enabled)
+EMPTY_INTERRUPT( PCINT0_vect );
 
 
 // Uses watchdog for power savings, so interrupts must be on 
@@ -440,6 +454,8 @@ void normalStepMode() {
 		 
 	while (1) {			// TODO: Unroll this loop for slight efficiency increase
 		
+		// Wait for next tick from the RTC
+				
 		sleep_cpu();			// Wait for /INT to wake us
 				
 		CLRBIT( RX8900INT_PORT , RX8900INT_BIT );	// Disable pull up. /INT Will be pulled low by RTC for ~7ms, so no need to waste power though the pull up.
@@ -464,12 +480,28 @@ void normalStepMode() {
 		sleep32ms();
 		
 		// Now turn the motor off by making the midpoint pin float
+		
+				
+		CLRBIT(MOVEMENT_PORT , MOVEMENT_BIT);		// Now drive pin low to quench flyback voltage
 		CLRBIT(MOVEMENT_DDR  , MOVEMENT_BIT);		// turn off drive
-		CLRBIT(MOVEMENT_PORT , MOVEMENT_BIT);		// turn off Pull-up
 	
 		CLRBIT( DIDR0 , ADC1D );				// Enable digital input buffer on the pin connected to /INT so we will see when RTC pulls it low
 		SETBIT( PCMSK , RX8900INT_PCMSK );		// Enable interrupt on /INT pin change to wake us when RTC says we are ready for next tick.
+
+		#warning
+		//div8Clock();		
+		//_delay_us(100/8)		;		// keep processor running to absorb inductive kick?
+		//fullSpeedClock();
 					
+		// This step is done
+		// Wait for next tick from the RTC
+		
+		/*
+		_delay_us(100);
+		div8Clock();
+		_delay_us(100);
+		fullSpeedClock();		
+		*/
 
 		sleep_cpu();			// Wait for /INT to wake us
 		
@@ -493,12 +525,15 @@ void normalStepMode() {
 		sleep32ms();
 		
 		// Now turn the motor off by making the midpoint pin float
-		// IN this phase we do not need to set the PORT low becuase we were driving low
-		CLRBIT(MOVEMENT_DDR  , MOVEMENT_BIT);		// turn off drive
-	
-		CLRBIT( DIDR0 , ADC1D );				// Enable digital input buffer on the pin connected to /INT so we will see when RTC pulls it low
-		SETBIT( PCMSK , RX8900INT_PCMSK );		// Enable interrupt on /INT pin change to wake us when RTC says we are ready for next tick.
+		// IN this phase we do not need to set the PORT low because we were driving low
 
+		CLRBIT(MOVEMENT_DDR  , MOVEMENT_BIT);		// turn off drive
+		CLRBIT(MOVEMENT_PORT , MOVEMENT_BIT);		// quench inductive kickback
+			
+		CLRBIT( DIDR0 , ADC1D );				// Enable digital input buffer on the pin connected to /INT so we will see when RTC pulls it low
+		SETBIT( PCMSK , RX8900INT_PCMSK );		// Enable interrupt on /INT pin change to wake us when RTC says we are ready for next tick.			
+
+		// This step is done
 					
 	}	
 	
@@ -552,11 +587,11 @@ void waitButtonPress() {
 #define HUMANLIFE_MINS (HUMANLIFE_YEARS*MINS_PER_TROPICALYEAR)
 #define HUMANLIFE_MINS_PER_TICK (HUMANLIFE_MINS / TICKS_PER_ROTATION )		// About 17,000 mins per tick. TODO: Add error correction here to account for minute aliasing
 
-
-// TODO: This does not work out exactly, so do a Bresenham's style error track and adjust 
-
 int main(void)
 {
+	
+	// Switch from bootup 1Mhz to full speed 8Mhz
+	fullSpeedClock();
 	
 	//while (1);
 	// *** First set up all pins and pull-ups
