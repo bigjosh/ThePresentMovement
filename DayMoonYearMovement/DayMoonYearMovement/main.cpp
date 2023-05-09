@@ -12,12 +12,25 @@
 #include <avr/sfr_defs.h>		// _BV()
 
 // From the factory, the CLKDIV8 fuse is set, to we are only running at 1Mhz
-// This will switch us to full speed 8Mhz, which is fine becuase we know we will have >3V from the 2xAA batteries. 
+// This will switch us to full speed 8Mhz, which is fine because we know we will have >3V from the 2xAA batteries. 
+
+// Power usage is non-linear to speed, so going faster should use less power 
+
+// 8Mhz - you need at least ~2.6V to do this
 
 void fullSpeedClock() {
 	CLKPR = (1<<CLKPCE); // Prescaler enable
 	CLKPR = 0; // Clock division factor 1 (8Mhz)
 }
+
+// 4Mhz - this works all voltages (min 1.8V)
+
+void div2Clock() {
+	CLKPR = (1<<CLKPCE); // Prescaler enable
+	CLKPR = 1; // Clock division factor 2 (4Mhz)
+}
+
+// 1Mhz
 
 void div8Clock() {
 	CLKPR = (1<<CLKPCE); // Prescaler enable
@@ -25,7 +38,7 @@ void div8Clock() {
 }
 
 
-#define F_CPU 8000000		// Assumes fullSpeedClock() above has been called
+#define F_CPU 4000000		// Assumes fullSpeedClock() above has been called. This must be defined before the inlcude of SoftI2C.
 #include <util/delay.h>
 #include <util/delay_basic.h>
 
@@ -78,13 +91,8 @@ void div8Clock() {
 #define MOVEMENT_PORT	PORTB
 #define MOVEMENT_DDR	DDRB
 #define MOVEMENT_BIT	4
-
-
-// Unused pin. Currently unconnected.
-
-#define UNUSEDPIN_PORT	PORTB
-#define UNUSEDPIN_DDR	DDRB
-#define UNUSEDPIN_BIT	0
+#define MOVEMENT_DIDR	DIDR0	// Digital input disable register 
+#define MOVEMENT_DIDB	ADC2D	// Bit to set in DIDR to turn of the digital input on this pin 
 
 
 // Push button
@@ -138,7 +146,7 @@ void movement_mid_on( uint8_t phase ) {
 
 void movement_mid_off() {
 	CLRBIT(MOVEMENT_DDR  , MOVEMENT_BIT);		// turn off drive
-	CLRBIT(MOVEMENT_PORT , MOVEMENT_BIT);		// turn off Pull-up 
+	CLRBIT(MOVEMENT_PORT , MOVEMENT_BIT);		// turn off Pull-up if on.
 }
 
 
@@ -170,10 +178,26 @@ void movement_mid_off() {
 #define RX8900_EXTENTION_REG_TSEL1_MASK   _BV(1)		//TE ( Timer Enable ) bit													
 #define RX8900_EXTENTION_REG_TSEL0_MASK   _BV(0)		//TE ( Timer Enable ) bit
 
-// These two masks control if the fixed cycle timer values in TC0 and TC1 refer to seconds or minutes
+// These masks control if the fixed cycle timer values in TC0 and TC1 refer to seconds or minutes
 
 #define RX8900_EXTENTION_REG_TSEL_SEC_MASK	 ( RX8900_EXTENTION_REG_TSEL1_MASK )										// "Second" update / Once per second
 #define RX8900_EXTENTION_REG_TSEL_MIN_MASK	 ( RX8900_EXTENTION_REG_TSEL1_MASK |  RX8900_EXTENTION_REG_TSEL0_MASK )		// "Minute" update / Once per minute
+#define RX8900_EXTENTION_REG_TSEL_64H_MASK	 ( RX8900_EXTENTION_REG_TSEL0_MASK )										// "64Hz" update / Once per 15.625ms
+
+
+//FSEL0,1 ( Timer Select 0, 1 ) bits
+//The combination of these two bits is used to set the FOUT period 
+//interrupt function (four settings can be made).
+
+#define RX8900_EXTENTION_REG_FSEL1_MASK   _BV(3)		// FOUT sel bit
+#define RX8900_EXTENTION_REG_FSEL0_MASK   _BV(2)		// FOUT sel bit
+
+
+// These masks control if the FOUT frequency based on values in FSEL0 and FSEL
+
+#define RX8900_EXTENTION_REG_FSEL_32768_MASK	 ( 0x00 )
+#define RX8900_EXTENTION_REG_FSEL_1024_MASK	 ( RX8900_EXTENTION_REG_FSEL0_MASK )
+#define RX8900_EXTENTION_REG_FSEL_1_MASK	 ( RX8900_EXTENTION_REG_FSEL1_MASK )
 
 
 #define RX8900_FLAG_REG        0x0e			
@@ -237,15 +261,17 @@ void rx8900_ex_reg_set( uint8_t v ) {
 
 void rx8900_fixed_timer_stop() {
 
-	rx8900_reg_set( RX8900_EXTENTION_REG , 0x00 ); // Disable fixed timer so when we start, it starts at the top of the period
+	rx8900_reg_set( RX8900_EXTENTION_REG , RX8900_EXTENTION_REG_FSEL_1_MASK ); // Disable fixed timer so when we start, it starts at the top of the period
 	
 }
 
-// Start fixed timer with period minutes whatever last set in set_fixed_time_count()
+// All of these EXTTENTION_REG functions set the FOUT to 1Hz which is the lowest setting to use less power since we do not even have FOUT connected.  
+
+// Start fixed timer with period minutes whatever last set in set_fixed_time_count(). Maybe not nessisary since we tie FOE down to disable FOUT? 
 
 void rx8900_fixed_timer_start_mins() {
 
-	rx8900_reg_set( RX8900_EXTENTION_REG ,  RX8900_EXTENTION_REG_TE_MASK | RX8900_EXTENTION_REG_TSEL_MIN_MASK ); // Enable fixed timer, 1-minute base clock
+	rx8900_reg_set( RX8900_EXTENTION_REG ,  RX8900_EXTENTION_REG_TE_MASK | RX8900_EXTENTION_REG_TSEL_MIN_MASK | RX8900_EXTENTION_REG_FSEL_1_MASK ); // Enable fixed timer, 1-minute base clock
 	
 }
 
@@ -253,20 +279,28 @@ void rx8900_fixed_timer_start_mins() {
 
 void rx8900_fixed_timer_start_secs() {
 
-	rx8900_reg_set( RX8900_EXTENTION_REG , RX8900_EXTENTION_REG_TE_MASK | RX8900_EXTENTION_REG_TSEL_SEC_MASK); // Enable fixed timer, 1-second base clock
+	rx8900_reg_set( RX8900_EXTENTION_REG , RX8900_EXTENTION_REG_TE_MASK | RX8900_EXTENTION_REG_TSEL_SEC_MASK | RX8900_EXTENTION_REG_FSEL_1_MASK); // Enable fixed timer, 1-second base clock
+	
+}
+
+
+void rx8900_fixed_timer_start_64h() {
+
+	rx8900_reg_set( RX8900_EXTENTION_REG , RX8900_EXTENTION_REG_TE_MASK | RX8900_EXTENTION_REG_TSEL_64H_MASK | RX8900_EXTENTION_REG_FSEL_1_MASK); // Enable fixed timer, 1-second base clock
 	
 }
 
 
 // Set the RX8900 counts between INT events (MAX = 4195)
-// A count can be a second or a minute (and others we don't care about) depending on TSEL bits.
+// A count can be a second or a minute or 1/64th of sec (and others we don't care about) depending on TSEL bits when timer is started.
 // Count starts when TE bit enabled
 
-void rx8900_fixed_timer_set_count( uint16_t c ) {	
+// Note that c only has 12 significant bits so max value is 4095
+
+void rx8900_fixed_timer_set_count( const uint16_t c ) {	
 	rx8900_reg_set( RX8900_TC0_REG , c & 0xff );		// Low byte of count value (in seconds)
 	rx8900_reg_set( RX8900_TC1_REG , c / 0xff );		// High nibble of count value
 }
-
 
 // When a "1" is written to the TE bit, the fixed-cycle timer countdown starts from the preset value.
 
@@ -281,7 +315,7 @@ void rx8900_fixed_timer_start_seconds( unsigned s ) {
 // When a "1" is written to the TE bit, the fixed-cycle timer countdown starts from the preset value.
 
 
-void rx8900_fixed_timer_set_minutes( unsigned s ) {
+void rx8900_fixed_timer_start_minutes( unsigned s ) {
 	
 	rx8900_fixed_timer_set_count(s);
 	
@@ -289,6 +323,13 @@ void rx8900_fixed_timer_set_minutes( unsigned s ) {
 
 }
 
+void rx8900_fixed_timer_start_64h( unsigned s ) {
+	
+	rx8900_fixed_timer_set_count(s);
+	
+	rx8900_fixed_timer_start_64h();
+
+}
 
 
 void rx8900_init() {
@@ -304,9 +345,9 @@ void rx8900_init() {
 
 void rx8900_setup(void) {
 
-	// Stop any running fixed timer
-	
-	rx8900_fixed_timer_stop();
+	// Stop any running fixed timer. Set FOUT to 1Hz.
+		
+	rx8900_reg_set( RX8900_EXTENTION_REG , RX8900_EXTENTION_REG_FSEL_1_MASK ); 
 
 	// 2 second temp comp, enable the fixed timer interrupt on /INT (but it will not fire until fixed timer is enabled)
 	
@@ -326,6 +367,8 @@ EMPTY_INTERRUPT( WDT_vect);
 
 // Called on INT0 pin interrupt
 EMPTY_INTERRUPT( INT0_vect );
+
+// TODO: We can save some power by moving the button to the INT0 vector so we don't have to test for it in the main /INT handler.
 
 // Called on pin change interrupt (from the RTC or button depending on when pins enabled)
 EMPTY_INTERRUPT( PCINT0_vect );
@@ -387,6 +430,22 @@ uint8_t spin( uint16_t ticks ) {
 
 }
 
+void twitch_noINT( uint16_t ticks ) {
+	
+	
+	while (ticks>0)  {
+		
+		movement_mid_on(0);
+		_delay_ms(50);
+		
+		movement_mid_off();
+		_delay_ms(50);
+		
+	
+		ticks--;
+	}
+	
+}
 
 // Spin at full speed the specified number of ticks (0-3600)
 // It takes about 6 minutes to go all the way around (3600 steps * 100ms/step)
@@ -394,26 +453,71 @@ uint8_t spin( uint16_t ticks ) {
 // Returns the current phase when done (0 or 1)
 // This version does not use any interrupts, so since it does not sleep between ticks it uses more power. 
 
-uint8_t spin_noINT( uint16_t ticks ) {
-	
-	
+uint8_t spin_noINT_with_warmup( uint16_t ticks ) {
 	
 	uint8_t phase = 0 ;
 	
-	while (ticks--)  {
+	uint8_t warmup_ticks=4;
 		
+	while (warmup_ticks>0 && ticks>0)  {
+		
+		phase = phase ? 0 : 1;
+				
 		movement_mid_on(phase);
 		_delay_ms(50);
 		
 		movement_mid_off();
 		_delay_ms(50);
 		
+		
+		warmup_ticks--;
+		ticks--;
+	}
+	
+	
+	while (ticks>0)  {
+		
 		phase = phase ? 0 : 1;
+		
+		
+		movement_mid_on(phase);
+		_delay_ms(25);
+		
+		movement_mid_off();
+		_delay_ms(25);
+				
+		ticks--;
 	}
 	
 	return phase;
 
 }
+
+// Spin at full speed the specified number of ticks (0-3600)
+// It takes about 6 minutes to go all the way around (3600 steps * 100ms/step)
+// (not exact because it depends on the watchdog timer to measure 48ms per half step)
+// Returns the current phase when done (0 or 1)
+// This version does not use any interrupts, so since it does not sleep between ticks it uses more power.
+
+uint8_t spin_noINT( uint8_t phase , uint16_t ticks ) {
+			
+	while (ticks>0)  {
+		
+		phase = phase ? 0 : 1;
+				
+		movement_mid_on(phase);
+		_delay_ms(50);
+		
+		movement_mid_off();
+		_delay_ms(50);
+		
+		ticks--;
+	}
+	
+	return phase;
+
+}
+
 
 
 // Spin at half speed the specified number of ticks (0-3600)
@@ -480,8 +584,7 @@ void normalStepMode() {
 		sleep32ms();
 		
 		// Now turn the motor off by making the midpoint pin float
-		
-				
+						
 		CLRBIT(MOVEMENT_PORT , MOVEMENT_BIT);		// Now drive pin low to quench flyback voltage
 		CLRBIT(MOVEMENT_DDR  , MOVEMENT_BIT);		// turn off drive
 	
@@ -541,6 +644,28 @@ void normalStepMode() {
 	
 }
 
+// Assumes that no other interrupts (besides the WDT that we enable) will happen during its run. 
+// Leaves movement pin floating. 
+// This takes ~50ms and we should rest of 50ms after. 
+// Safe if called right after /INT interrupt and that only happens once every ~100ms
+
+void step( uint8_t phase ) {
+	
+	if (phase) {
+		// Actually move the stepper motor - PHASE 1, which is the midpoint pin driven high
+		SETBIT(MOVEMENT_PORT , MOVEMENT_BIT);		// Pull-up on
+	} 
+	
+	SETBIT(MOVEMENT_DDR  , MOVEMENT_BIT);		// Full drive high or low depending on PORT as set by phase
+	
+	// TODO: Sleep here to save power
+	_delay_ms(50);
+		
+	CLRBIT(MOVEMENT_DDR  , MOVEMENT_BIT);		// turn off drive
+	CLRBIT(MOVEMENT_PORT , MOVEMENT_BIT);		// turn off pull-up in phase 1 (does nothing in phase 0, but faster than checking and branching)
+	
+}
+
 // Low power wait for the button to be pressed. Assumes no other interrupts running.
 // Assumes interrupts enabled and PCIE enabled in GIMSK, but no other interrupts on.
 // Returns with button interrupt disabled. 
@@ -589,24 +714,46 @@ void waitButtonPress() {
 
 int main(void)
 {
+		
+	// Switch from bootup 1Mhz to half speed 4Mhz (the fastest we can reliably go since the battery voltage will drop below 2.6V which is min for 8Mhz.
+	div2Clock();
 	
-	// Switch from bootup 1Mhz to full speed 8Mhz
-	fullSpeedClock();
+	// First thing we will setup the RTC chip, which will stop it from generating /INT signals if it is currently running.
+	// We do this beacuse the /INT line is shared with the CLK programming line, so by turning it off on power up we 
+	// give ourselves a chance to reprogram the chip without getting interrupted by that /INT signal. 
+
+
+	uint8_t motor_phase= spin_noINT(1,10);
+
 	
-	//while (1);
+	// *** Program RTC to generate /INT signal period
+	// (also will stop any previously running fixed timer)
+	rx8900_setup();	
+	
+			
+	// Lets start with a quick run around the dial to prove we are awake an working
+	// This also gives us a chance to reprogram after a power up before the /INT signal starts
+	// Remember what phase we ended in.
+
+	spin_noINT( motor_phase ,120);
+	
+	while (1);
+				
 	// *** First set up all pins and pull-ups
-	
+
 	SETBIT( BUTTON_PORT , BUTTON_BIT);				// Enable button pull-up. Button connects pin to ground.
 	
+	SETBIT( MOVEMENT_DIDR , MOVEMENT_DIDB);	// Turn off digital input on movement pin to save power. We only use this for output, and it is floating at vcc/2 in between steps. 
+		
 	SETBIT( RX8900INT_PORT , RX8900INT_BIT );		// Enable pull-up on /INT pin. This is open-drain output on the RX8900 so we need to pull it up with the ATTINY.
-	
-	SETBIT( UNUSEDPIN_PORT , UNUSEDPIN_BIT );		// Pull unused pin high. This pin is connected so we don't want it to float and waste power. Is pull-up better than drive-up or drive-low? I don't know.
 	
 	i2c_init();										// This activates the pull-ups on the i2c SDA and SCL pins. 
 	
 	_delay_ms(10);		// Give the pull-ups a chance to pull the voltages. Don't use the WDT-based waits because they might get interrupted by the above changing pins. 
 	
-	//  ALL PINS NOW CONFIGURED FOR PULL-IP
+
+		
+	//  ALL PINS NOW CONFIGURED FOR PULL-UP
 	
 	// *** Global interrupt preparation
 	
@@ -616,20 +763,19 @@ int main(void)
 	// "Any change on any enabled PCINT[5:0] pin will cause an interrupt."
 	// Note that individual pins must also be enabled in the mask
 	// Used to wake us every time the fixed-cycle timer pulls /INT low or when button is pressed (each must be enabled in PCMSK)
-	SETBIT( GIMSK  , PCIE );				//When the PCIE bit is set (one) and the I-bit in the Status Register (SREG) is set (one), pin change interrupt is enabled.
+	SETBIT( GIMSK  , PCIE );				// When the PCIE bit is set (one) and the I-bit in the Status Register (SREG) is set (one), pin change interrupt is enabled.
 	
 	sei();			// And finally ready to actually enable interrupts. Still need to enable individual pins in the mask as needed.
-
-	// Get timer settings ready (will start it later)	
 	
-	// *** Program RTC to generate /INT signal period
-	// (also will stop any previously running fixed timer)
-	rx8900_setup();
+	
 
-
-	// *** Enable interrupt on pin connected to /INT signal from RTC (global pin interrupt already enabled above)
+	// *** Enable interrupts on pins connected to /INT signal from RTC and button (global pin interrupt already enabled above)
+	// Note that both pins are on the same vector so the only way to tell what happened is to check the bits
 	SETBIT( PCMSK , RX8900INT_PCMSK );	   // Enable change interrupt on /INT pin change from RTC.
 	
+	// TODO: Is 3/64th of a second good enough for button responsiveness without an interrupt? Lets see!
+	//SETBIT( PCMSK , BUTTON_PCMSK );	   // Enable change interrupt on button pin. You must also sei() and enable PCIE in GIMSK to enable all pin change interrupts
+			
 	// Set the fixed timer period count
 	// (we will specify if this count is minutes or seconds when we start the fixed timer
 
@@ -639,76 +785,101 @@ int main(void)
 	
 	// One rotation per day per 24 hours = 24 seconds per tick (1 second per tick= 1 hour per rotation)
 	// rx8900_fixed_timer_set_count( 24 );
-			
-	
+				
 	// *** Enable sleeping mode
 	
 	sleep_enable();							// Do once to enable sleep forever
 	set_sleep_mode(SLEEP_MODE_PWR_DOWN);	// Lowest power, can wake on interrupts (pin change, WDT)		
-			
-	#warning test with 1 second ticks
-	rx8900_fixed_timer_set_count(1);		// two second ticks
-
-
-
-
-	// *** Wait for a button press to get us started		
-	
-	SETBIT( PCMSK , BUTTON_PCMSK );	   // Enable change interrupt on this pin. You must also sei() and enable PCIE in GIMSK to enable all pin change interrupts
-	
-	sleep_cpu();						// Sleep - we will wake up when button state changes.
-
-	CLRBIT( PCMSK , BUTTON_PCMSK );	   // Disable the interrupt that got us here.
 
 	
-	CLRBIT( BUTTON_PORT , BUTTON_BIT );		// Disable the pull-up
-	SETBIT( BUTTON_DDR , BUTTON_BIT );		// Drive button pin low so it will not use any power (we never need to check it again)
-											// Note we do not leave pull-up on since then would use power as long as button is pressed. 
-											
-											
-	// *** Start out clock from this moment the button is pressed (behavior for now)
+	// Our base time unit `tick` will be 6/64ths of a second. We pick this because...
+	// 1. We can precisely set it on our RTC which has a 64hz base clock, and
+	// 2. 6/64ths is just about 100ms  which is approx our (current) minimum time per step on the clock movement (we might be able to get this down by driving the motor differently)
+	//#warning
+	rx8900_fixed_timer_set_count(6);
+	
 	// The Timer Enable bit will be 0 now from reset(), so this will set TE to 1 and the timer will start at the top of the period. 	
 	
-	rx8900_fixed_timer_start_secs();	
-	normalStepMode();
-	__builtin_unreachable();											
-
-	
-	// rx8900_fixed_timer_start_mins();
-	rx8900_fixed_timer_start_secs();
-
+	rx8900_fixed_timer_start_64h();	
 	
 
-	// *** Show we woke	
+	unsigned long c=0;
+while (1) {
+			sleep_cpu();				// Wait for RTC tick to wake us
+			c++;
+		if ((c&7)==0) {
+		step(motor_phase);	
+		}
+	};
+
+	
+	
+	uint8_t in_learn_mode_flag = 0;			// Are we currently in learn mode where we are waiting for 2nd button press to establish the period?
+	unsigned long period_ticks=((64*60)/3);	// The period in 3/64s. Power up with a 1 minute period.
+	unsigned long current_ticks=0;			// Current tick counter incremented on each tick.
+	uint8_t old_port_bits = 0;				// This chip does not latch pin changes, so we must remember the previous bits so we can tell what changes. Start assuming button is UP. If it is down, then we will ignore until it goes up first.
+	
+	while (1) {
 		
-	#define SECS_PER_SCOTTLIFE (1335721787UL)
-	#define MINS_PERSCOTTLIFE (SECS_PER_SCOTTLIFE/SECS_PER_MIN)
-
-/*
-	
-	// The numbers are just too big for even long ints, so use a float. 
-	const double HUMANLIFE_SECS =  (1.0 * HUMANLIFE_YEARS * TROPICALYEAR_SECS);
-	
-	spin( (unsigned) ( (SECS_PER_SCOTTLIFE / HUMANLIFE_SECS ) * 3600.0) );			
-	
-*/
-
-	// Start the fixed cycle timer (we set up the timer and specified the count above)
-	//rx8900_fixed_timer_start_secs();	
-
-	spin(  TICKS_PER_ROTATION / 2  );		// Make 180 deg rotation on button press to show we are working
-	
+		sleep_cpu();				// Wait for RTC tick to wake us
+		
+		// static_assert( BUTTON_PIN == RX8900INT_PIN , "Button and RTC pins must be on same PORT" );
+		uint8_t new_port_bits = BUTTON_PIN;	// Save which gpio bits got us here. Captures both the button and RTC /INT pins.
+		
+		// First check for button change
+		if ( GETBIT( new_port_bits , BUTTON_BIT) != GETBIT( old_port_bits , BUTTON_BIT)  ) {
+			// Button state changed
+					
+			if (!GETBIT(new_port_bits,BUTTON_BIT)) {			// Button has pull-up, so pin==0 means button pushed down
+				// Button newly down 
+				
+				if (in_learn_mode_flag) {
+					// end learn mode!
+					period_ticks=current_ticks;		// Remember the learned period
+					current_ticks=0;				// Start ticking now
+					in_learn_mode_flag=0;			// end learn mode
+					
+				} else {
+					// Start learn mode!
+					current_ticks=0;		// Clear counter
+					in_learn_mode_flag=1;
+				}
+															
+			}
 			
+		}
+		
+		// Next handle the tick
+		// Currently the RTC is the only enabled interrupt source, so no need to check if it triggered.
+		
+		if (in_learn_mode_flag) {
+			
+			// We are in learning mode, so twittle the hand about once a sec
+			// We do not update the phase, so stepping the same phase just moves the hand forward a bit but then it pulls back again. 
+			
+			if ( (current_ticks & 7) == 0) {		// This is a quick way to do it
+				step(motor_phase);			
+			}
+			
+		} else {
+			
+			if (current_ticks*60>=period_ticks) {			// 60 steps per rotation *  1 rotation per period  * period_ticks per rotation 
+				// Time to move the hand 
+				
+				motor_phase = !motor_phase;		// switch phase so hand moves one step forward
+				step( motor_phase );
+				current_ticks -= period_ticks;  // Rather than just resetting current_ticks to 0, this will bresenham us to always accumulate and eventually compensate for the error term. 
+			}
+			
+			
+		}
+		
+		current_ticks++;		// increments the tick counter
+				
+		old_port_bits=new_port_bits;
+				
+	}
 
-	
-	//rx8900_fixed_timer_set_seconds( 4 );		
-	//rx8900_fixed_timer_set_seconds( SOLARDAY_SECS_PER_TICK );	
-	//rx8900_fixed_timer_set_seconds( LUNARMONTH_SECS_PER_TICK );
-	//rx8900_fixed_timer_set_minutes( HUMANLIFE_MINS_PER_TICK );
-	//rx8900_fixed_timer_set_minutes(  TROPICALYEAR_MINS_PER_TICK );
-	//rx8900_fixed_timer_set_minutes(  1  );
-						
-	normalStepMode();			// Start stepping, never returns
 	
 	__builtin_unreachable();
 		
