@@ -44,7 +44,7 @@ void div8Clock() {
 
 #define SETBIT(x,b) ((x) |= _BV(b))
 #define CLRBIT(x,b) ((x) &= ~_BV(b))
-#define GETBIT(x,b) ((x) &= _BV(b))
+#define GETBIT(x,b) ((x) & _BV(b))
 
 
 // *** Hardware connections
@@ -60,6 +60,7 @@ void div8Clock() {
 #define RX8900_SDA_BIT	1
 
 #define RX8900INT_PORT		PORTB
+#define RX8900INT_PIN		PINB
 #define RX8900INT_DDR		DDRB
 #define RX8900INT_BIT		2
 #define RX8900INT_PCMSK	PCINT2
@@ -74,6 +75,8 @@ void div8Clock() {
 
 #define	I2C_PULLUP		1					// Use internal pullups for the TWI lines
 #define I2C_SLOWMODE	1					// No rush- we are using pullups so give time for them to pull up. 
+
+#define I2C_CPUFREQ 20000000				// Make the I2C think we are running at 20Mhz so it will slow down. 
 
 // We use this not so great i2c code since it does not really matter - we only use it one time on power up and never touch it again
 // so not worth rewriting. 
@@ -220,8 +223,6 @@ void movement_mid_off() {
 																				// When a "0"?is written to this bit, no interrupt signal is generated when an interrupt event occurs.
 
 #define RX8900_BACKUP_REG      0x18
-#define RX8900_BACKUP_REG      0x18
-
 
 #define RX8900_BACKUP_REG_VDETOFF_MASK      _BV(3)				// VDETOFF bit (Voltage Detector OFF). This bit controls the voltage detection circuit of the main power supply VDD.
 #define RX8900_BACKUP_REG_SWOFF_MASK		_BV(2)				// This bit controls the internal P-MOS switch for preventing back flow.
@@ -337,6 +338,15 @@ void rx8900_init() {
 	i2c_init();
 }
 
+// Turn off the /INT output
+
+void rx8900_disable_int() {
+
+	// Stop any running fixed timer. Set FOUT to 1Hz.	
+	rx8900_reg_set( RX8900_EXTENTION_REG , RX8900_EXTENTION_REG_FSEL_1_MASK );
+	
+}
+
 // Called anytime the RX8900 has seen low voltage (VLF)
 // Sets all the control registers to known values
 // Clears the flags, so make sure you save any that you need before calling
@@ -344,10 +354,6 @@ void rx8900_init() {
 // Does not reset the time counter
 
 void rx8900_setup(void) {
-
-	// Stop any running fixed timer. Set FOUT to 1Hz.
-		
-	rx8900_reg_set( RX8900_EXTENTION_REG , RX8900_EXTENTION_REG_FSEL_1_MASK ); 
 
 	// 2 second temp comp, enable the fixed timer interrupt on /INT (but it will not fire until fixed timer is enabled)
 	
@@ -468,8 +474,7 @@ uint8_t spin_noINT_with_warmup( uint16_t ticks ) {
 		
 		movement_mid_off();
 		_delay_ms(50);
-		
-		
+				
 		warmup_ticks--;
 		ticks--;
 	}
@@ -506,10 +511,10 @@ uint8_t spin_noINT( uint8_t phase , uint16_t ticks ) {
 		phase = phase ? 0 : 1;
 				
 		movement_mid_on(phase);
-		_delay_ms(50);
+		_delay_ms(30);
 		
 		movement_mid_off();
-		_delay_ms(50);
+		_delay_ms(30);
 		
 		ticks--;
 	}
@@ -714,31 +719,65 @@ void waitButtonPress() {
 
 int main(void)
 {
-		
+
 	// Switch from bootup 1Mhz to half speed 4Mhz (the fastest we can reliably go since the battery voltage will drop below 2.6V which is min for 8Mhz.
 	div2Clock();
 	
+	// If we reset because we are about to reprogram, give the programmer a chance to control the shared data line
+	// before we start using it for I2C stuff. 
+		
 	// First thing we will setup the RTC chip, which will stop it from generating /INT signals if it is currently running.
-	// We do this beacuse the /INT line is shared with the CLK programming line, so by turning it off on power up we 
+	// We do this because the /INT line is shared with the CLK programming line, so by turning it off on power up we 
 	// give ourselves a chance to reprogram the chip without getting interrupted by that /INT signal. 
 
+	i2c_init();
+	_delay_ms(1);		// Give the pullup on data line a chance to pull up so the start bit is not too short. 
+	
 
-	uint8_t motor_phase= spin_noINT(1,10);
+/*
+#define RX8900_SCL_PORT PORTB
+#define RX8900_SCL_DDR	DDRB
+#define RX8900_SCL_BIT	3
+
+#define RX8900_SDA_PORT PORTB
+#define RX8900_SDA_DDR	DDRB
+#define RX8900_SDA_BIT	1
+
+
+	SETBIT( RX8900_SDA_PORT , RX8900_SDA_BIT);
+	SETBIT( RX8900_SDA_DDR , RX8900_SDA_BIT);
+
+	SETBIT( RX8900_SCL_PORT , RX8900_SCL_BIT);
+	
+*/	
+
+	// First we disable the int so in case we are in a programming cycle, it will not mess up the data line. 
+	rx8900_disable_int();
+
+	// Now we can wait. The programmer will only release RESET for 50ms, so if we are in a programming cycle
+	// then we will never leave this delay. 
+	_delay_ms(50);
+	
+	// If we get to here, then it was a normal power up so we have plenty of time to set the RX8900 up right
+	rx8900_setup();	
 
 	
 	// *** Program RTC to generate /INT signal period
 	// (also will stop any previously running fixed timer)
-	rx8900_setup();	
 	
 			
 	// Lets start with a quick run around the dial to prove we are awake an working
 	// This also gives us a chance to reprogram after a power up before the /INT signal starts
 	// Remember what phase we ended in.
 
-	spin_noINT( motor_phase ,120);
+	uint8_t motor_phase;
 	
-	while (1);
-				
+	motor_phase= spin_noINT( 1 ,60);
+	
+	//CLRBIT( RX8900_SDA_PORT , RX8900_SDA_BIT);
+	//while (1);
+	
+					
 	// *** First set up all pins and pull-ups
 
 	SETBIT( BUTTON_PORT , BUTTON_BIT);				// Enable button pull-up. Button connects pin to ground.
@@ -746,13 +785,9 @@ int main(void)
 	SETBIT( MOVEMENT_DIDR , MOVEMENT_DIDB);	// Turn off digital input on movement pin to save power. We only use this for output, and it is floating at vcc/2 in between steps. 
 		
 	SETBIT( RX8900INT_PORT , RX8900INT_BIT );		// Enable pull-up on /INT pin. This is open-drain output on the RX8900 so we need to pull it up with the ATTINY.
-	
-	i2c_init();										// This activates the pull-ups on the i2c SDA and SCL pins. 
-	
-	_delay_ms(10);		// Give the pull-ups a chance to pull the voltages. Don't use the WDT-based waits because they might get interrupted by the above changing pins. 
-	
-
 		
+	_delay_ms(10);		// Give the pull-ups a chance to pull the voltages. Don't use the WDT-based waits because they might get interrupted by the above changing pins. 
+			
 	//  ALL PINS NOW CONFIGURED FOR PULL-UP
 	
 	// *** Global interrupt preparation
@@ -766,7 +801,6 @@ int main(void)
 	SETBIT( GIMSK  , PCIE );				// When the PCIE bit is set (one) and the I-bit in the Status Register (SREG) is set (one), pin change interrupt is enabled.
 	
 	sei();			// And finally ready to actually enable interrupts. Still need to enable individual pins in the mask as needed.
-	
 	
 
 	// *** Enable interrupts on pins connected to /INT signal from RTC and button (global pin interrupt already enabled above)
@@ -796,20 +830,34 @@ int main(void)
 	// 1. We can precisely set it on our RTC which has a 64hz base clock, and
 	// 2. 6/64ths is just about 100ms  which is approx our (current) minimum time per step on the clock movement (we might be able to get this down by driving the motor differently)
 	//#warning
-	rx8900_fixed_timer_set_count(6);
+	rx8900_fixed_timer_set_count(8);
 	
 	// The Timer Enable bit will be 0 now from reset(), so this will set TE to 1 and the timer will start at the top of the period. 	
 	
 	rx8900_fixed_timer_start_64h();	
 	
 
+	// Twitch once per sec
 	unsigned long c=0;
-while (1) {
-			sleep_cpu();				// Wait for RTC tick to wake us
+	while (1) {
+		
+		sleep_cpu();				// Wait for RTC tick to wake us		
+		
+		
+		if ( !GETBIT(RX8900INT_PIN,RX8900INT_BIT)  ) {
+
+			CLRBIT( RX8900_SDA_PORT , RX8900_SDA_BIT);			
+			
+			_delay_ms(1);
+				
+			SETBIT( RX8900_SDA_PORT , RX8900_SDA_BIT);			
+						
 			c++;
-		if ((c&7)==0) {
-		step(motor_phase);	
+			if ((c&7)==0) {
+					step(motor_phase);	
+			}
 		}
+		
 	};
 
 	
