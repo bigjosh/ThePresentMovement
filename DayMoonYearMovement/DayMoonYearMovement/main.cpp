@@ -379,6 +379,16 @@ EMPTY_INTERRUPT( INT0_vect );
 // Called on pin change interrupt (from the RTC or button depending on when pins enabled)
 EMPTY_INTERRUPT( PCINT0_vect );
 
+/*
+ISR(PCINT0_vect) {
+		
+		SETBIT( RX8900_SDA_PORT , RX8900_SDA_BIT);
+		SETBIT( RX8900_SDA_DDR , RX8900_SDA_BIT);
+		SETBIT( RX8900_SDA_DDR , RX8900_SDA_BIT);
+		CLRBIT( RX8900_SDA_PORT , RX8900_SDA_BIT);
+		
+}
+*/
 
 // Uses watchdog for power savings, so interrupts must be on 
 // Assumes no other interrupt sources can wake us
@@ -470,10 +480,10 @@ uint8_t spin_noINT_with_warmup( uint16_t ticks ) {
 		phase = phase ? 0 : 1;
 				
 		movement_mid_on(phase);
-		_delay_ms(50);
+		_delay_ms(30);
 		
 		movement_mid_off();
-		_delay_ms(50);
+		_delay_ms(30);
 				
 		warmup_ticks--;
 		ticks--;
@@ -596,21 +606,6 @@ void normalStepMode() {
 		CLRBIT( DIDR0 , ADC1D );				// Enable digital input buffer on the pin connected to /INT so we will see when RTC pulls it low
 		SETBIT( PCMSK , RX8900INT_PCMSK );		// Enable interrupt on /INT pin change to wake us when RTC says we are ready for next tick.
 
-		#warning
-		//div8Clock();		
-		//_delay_us(100/8)		;		// keep processor running to absorb inductive kick?
-		//fullSpeedClock();
-					
-		// This step is done
-		// Wait for next tick from the RTC
-		
-		/*
-		_delay_us(100);
-		div8Clock();
-		_delay_us(100);
-		fullSpeedClock();		
-		*/
-
 		sleep_cpu();			// Wait for /INT to wake us
 		
 		CLRBIT( RX8900INT_PORT , RX8900INT_BIT );	// Disable pull up. /INT Will be pulled low by RTC for ~7ms, so no need to waste power though the pull up.
@@ -651,8 +646,11 @@ void normalStepMode() {
 
 // Assumes that no other interrupts (besides the WDT that we enable) will happen during its run. 
 // Leaves movement pin floating. 
-// This takes ~50ms and we should rest of 50ms after. 
+// This takes ~30ms and we should rest of at least 30ms after. 
 // Safe if called right after /INT interrupt and that only happens once every ~100ms
+
+#define MS_PER_PHASE 30
+#define PHASE_PER_STEP 2
 
 void step( uint8_t phase ) {
 	
@@ -664,10 +662,14 @@ void step( uint8_t phase ) {
 	SETBIT(MOVEMENT_DDR  , MOVEMENT_BIT);		// Full drive high or low depending on PORT as set by phase
 	
 	// TODO: Sleep here to save power
-	_delay_ms(50);
+	_delay_ms(MS_PER_PHASE);
 		
 	CLRBIT(MOVEMENT_DDR  , MOVEMENT_BIT);		// turn off drive
 	CLRBIT(MOVEMENT_PORT , MOVEMENT_BIT);		// turn off pull-up in phase 1 (does nothing in phase 0, but faster than checking and branching)
+	
+	// This delay is implied because we assume the caller will not call step again for at least this long. 
+	// _delay_ms(MS_PER_PHASE);
+
 	
 }
 
@@ -691,7 +693,33 @@ void waitButtonPress() {
 	
 }
 
-#define TICKS_PER_ROTATION (3600)
+// ----- Define our units
+
+// A CLOCK is one cycle of the internal RTC clock. There are only a fixed number of periods available for these from the hardware including 1Hz and 64Hz.
+// A TICK is our internal time keeping unit. We program the RTC to give us an interrupt once every CLOCKS_PER_TICK. This must be an integer multiple of CLOCKs. 
+// A STEP is one full step of the stepper motor, which is mechanically fixed to either 60 steps per rotation or 3600 steps per rotation depending on which axle we attach to
+// A PHASE is one change of polarity of the stepper motor windings. This is a lavet type stepper so only has 2 phases per step.
+	
+// We don't have a lot of choices here from the RTC hardware, so we pick this one because period of 1 second is too long and 244.14us is too short.
+// This gives us an internal clock period of 1/64th second = 15.625ms. 
+
+#define CLOCKS_PER_SEC	64
+	
+// Define how often we will get a tick interrupts in 1/64ths of a second
+// We pick 4 because this is one tick every ~62.5ms, so we can complete a step of the motor which is a minimum of 30ms on and 30ms off.
+#define CLOCKS_PER_TICK	4
+
+
+// These are fixed by the gears in the gearbox. You pick which one by which axle you attach a hand to. 
+#define STEPS_PER_ROTATION_MIN_HAND (3600)
+#define STEPS_PER_ROTATION_SEC_HAND (60)
+
+
+// Some outside-world constants
+
+#define MS_PER_SEC   (1000)
+#define SECS_PER_MIN (60)
+#define MINS_PER_HOUR (60)
 
 #define LUNARMONTH_SECS (2551443UL)			//https://www.justintools.com/unit-conversion/time.php?k1=lunar-months&k2=seconds
 #define LUNARMONTH_SECS_PER_TICK ( LUNARMONTH_SECS / TICKS_PER_ROTATION )
@@ -703,19 +731,19 @@ void waitButtonPress() {
 #define TROPICALYEAR_SECS_PER_TICK ( SOLARDAY_SECS/ TICKS_PER_ROTATION )
 #define TROPICALYEAR_MINS_PER_TICK ( TROPICALYEAR_SECS_PER_TICK / SECS_PER_MIN )
 
-#define HOUR_SECS	(60*60)
-#define HOUR_SECS_PER_TICK ( HOUR_SECS / TICKS_PER_ROTATION )
-
-
 // Human life is long enough that we have to switch to minutes
 
 #define HUMANLIFE_YEARS (120)
-#define SECS_PER_MIN (60)
 
 #define MINS_PER_TROPICALYEAR (TROPICALYEAR_SECS/SECS_PER_MIN)
 
 #define HUMANLIFE_MINS (HUMANLIFE_YEARS*MINS_PER_TROPICALYEAR)
 #define HUMANLIFE_MINS_PER_TICK (HUMANLIFE_MINS / TICKS_PER_ROTATION )		// About 17,000 mins per tick. TODO: Add error correction here to account for minute aliasing
+
+
+// TODO: Check to make sure that a tick is longer than a minimum step (or else we will drive the motor too fast and it will not turn)
+
+
 
 int main(void)
 {
@@ -771,10 +799,14 @@ int main(void)
 	// Remember what phase we ended in.
 
 	uint8_t motor_phase;
+
+
+	//CLRBIT( RX8900_SDA_PORT , RX8900_SDA_BIT);
 	
+	// One quick rotation around the face to show we started (takes about 3.6s)
 	motor_phase= spin_noINT( 1 ,60);
 	
-	//CLRBIT( RX8900_SDA_PORT , RX8900_SDA_BIT);
+	//SETBIT( RX8900_SDA_PORT , RX8900_SDA_BIT);
 	//while (1);
 	
 					
@@ -782,7 +814,7 @@ int main(void)
 
 	SETBIT( BUTTON_PORT , BUTTON_BIT);				// Enable button pull-up. Button connects pin to ground.
 	
-	SETBIT( MOVEMENT_DIDR , MOVEMENT_DIDB);	// Turn off digital input on movement pin to save power. We only use this for output, and it is floating at vcc/2 in between steps. 
+	SETBIT( MOVEMENT_DIDR , MOVEMENT_DIDB);			// Turn off digital input on movement pin to save power. We only use this for output, and it is floating at vcc/2 in between steps. 
 		
 	SETBIT( RX8900INT_PORT , RX8900INT_BIT );		// Enable pull-up on /INT pin. This is open-drain output on the RX8900 so we need to pull it up with the ATTINY.
 		
@@ -826,17 +858,15 @@ int main(void)
 	set_sleep_mode(SLEEP_MODE_PWR_DOWN);	// Lowest power, can wake on interrupts (pin change, WDT)		
 
 	
-	// Our base time unit `tick` will be 6/64ths of a second. We pick this because...
-	// 1. We can precisely set it on our RTC which has a 64hz base clock, and
-	// 2. 6/64ths is just about 100ms  which is approx our (current) minimum time per step on the clock movement (we might be able to get this down by driving the motor differently)
-	//#warning
-	rx8900_fixed_timer_set_count(8);
+	// Set the timer to give us an tick interrupt once every CLOCK_PER_TICK clocks
+	rx8900_fixed_timer_set_count(CLOCKS_PER_TICK);
 	
 	// The Timer Enable bit will be 0 now from reset(), so this will set TE to 1 and the timer will start at the top of the period. 	
 	
+	//static_assert( CLOCKS_PER_TICK==64 , "CLOCKS_PER_TICK must match what we actually set the RTC to run at")
 	rx8900_fixed_timer_start_64h();	
 	
-
+/*
 	// Twitch once per sec
 	unsigned long c=0;
 	while (1) {
@@ -860,72 +890,128 @@ int main(void)
 		
 	};
 
+*/	
+
+
+
+	#define STARTUP_PERIOD_MINS_PER_ROTATION			(1)		// Power up with a 1 minute period for no good reason except it looks like a normal second hand by default and easy to check. 
+	#define STARTUP_PERIOD_SECS_PER_ROTATION			(STARTUP_PERIOD_MINS_PER_ROTATION*SECS_PER_MIN)
 	
+	#define STARTUP_PERIOD_CLOCKS_PER_ROTATION			(STARTUP_PERIOD_SECS_PER_ROTATION*CLOCKS_PER_SEC)
+
+	#define STARTUP_PERIOD_TICKS_PER_ROTATION			(STARTUP_PERIOD_CLOCKS_PER_ROTATION/CLOCKS_PER_TICK)		// Note this could lose some precision if not an integer number of ticks in the period. 
+	
+	#define LEARN_MODE_TWITCH_PER_SEC	1		// No good reasons.
+	#define LEARN_MODE_CLOCKS_PER_TWITCH (CLOCKS_PER_SEC/LEARN_MODE_TWITCH_PER_SEC)
+	#define LEARN_MODE_TICKS_PER_TWITCH	(LEARN_MODE_CLOCKS_PER_TWITCH/CLOCKS_PER_TICK)								// Note this could lose some precision if not an integer number of ticks in the period. 
 	
 	uint8_t in_learn_mode_flag = 0;			// Are we currently in learn mode where we are waiting for 2nd button press to establish the period?
-	unsigned long period_ticks=((64*60)/3);	// The period in 3/64s. Power up with a 1 minute period.
-	unsigned long current_ticks=0;			// Current tick counter incremented on each tick.
-	uint8_t old_port_bits = 0;				// This chip does not latch pin changes, so we must remember the previous bits so we can tell what changes. Start assuming button is UP. If it is down, then we will ignore until it goes up first.
-	
+	unsigned long ticks_per_rotation= STARTUP_PERIOD_TICKS_PER_ROTATION-1 ;	// Power up with default period running so there is something reasonable happening. `-1` because we INT when it hits `0` and then it resets to this value on next clock. 
+	unsigned long current_ticks=0;			// Current tick counter incremented on each tick.	
+	unsigned long step_accumulator=0; 	
+	uint8_t current_button_down_state = 0;	 
+				
 	while (1) {
+
+		// These SDA_PORT twiddles are just here so the sleep show up on a scope for debugging
+		// SETBIT( RX8900_SDA_PORT , RX8900_SDA_BIT);
+		// SETBIT( RX8900_SDA_DDR , RX8900_SDA_BIT);				
+		sleep_cpu();				// Wait for RTC INT to wake us
+		// SETBIT( RX8900_SDA_DDR , RX8900_SDA_BIT);
+		// CLRBIT( RX8900_SDA_PORT , RX8900_SDA_BIT);
 		
-		sleep_cpu();				// Wait for RTC tick to wake us
+		// Next we check if the INT pin is down, meaning that this last wake was because of a falling edge.
+		// We ignore rising edges, which comes ~7ms after the falling edge. Sometimes we will miss the rising edge
+		// because this loop takes more than 7ms, but we should never miss the next falling edge as long as this loop
+		// takes less than CLOCKS_PER_TICK/CLOCKS_PER_SEC (about 65ms with CLOCKS_PER_TICK=4
 		
-		// static_assert( BUTTON_PIN == RX8900INT_PIN , "Button and RTC pins must be on same PORT" );
-		uint8_t new_port_bits = BUTTON_PIN;	// Save which gpio bits got us here. Captures both the button and RTC /INT pins.
 		
-		// First check for button change
-		if ( GETBIT( new_port_bits , BUTTON_BIT) != GETBIT( old_port_bits , BUTTON_BIT)  ) {
-			// Button state changed
+		if (!GETBIT(RX8900INT_PIN,RX8900INT_BIT )) {			// INT has pull-up, so pin==0 means RTC INT triggered. We check for low becuase we get a interrupt on both level changes.
+			
+			// This is the falling edge of the next tick
+			
+			// TODO: Turn off INT pull-up and digital buffer for at least next 8ms so it is not fighting with the RTC
+
+			current_ticks++;		// increment the tick counter
 					
-			if (!GETBIT(new_port_bits,BUTTON_BIT)) {			// Button has pull-up, so pin==0 means button pushed down
-				// Button newly down 
+			// Check for new button press
+		
+			if ( !GETBIT( BUTTON_PIN, BUTTON_BIT) ) {    // Button has pull-up, so pin==0 means button pushed down
+
+				// Is this a new button down?
+					
+				if (!current_button_down_state) {			
+					
+					current_button_down_state = 1;		// Remember currently down so we do not process multiple times
+					
+					// Button newly down 
 				
-				if (in_learn_mode_flag) {
-					// end learn mode!
-					period_ticks=current_ticks;		// Remember the learned period
-					current_ticks=0;				// Start ticking now
-					in_learn_mode_flag=0;			// end learn mode
+					if (in_learn_mode_flag) {
+						ticks_per_rotation = current_ticks;		
+						step_accumulator=0;
+						in_learn_mode_flag=0;			// end learn mode
 					
-				} else {
-					// Start learn mode!
-					current_ticks=0;		// Clear counter
-					in_learn_mode_flag=1;
-				}
+					} else {
+						// Start learn mode!
+						current_ticks=0;			// We will accumulate the count here
+						in_learn_mode_flag=1;
+					}
 															
+				}
+			
+			} else {
+				current_button_down_state=0;			// Button is not down right now, so clear the way to process the next down event
 			}
-			
-		}
 		
-		// Next handle the tick
-		// Currently the RTC is the only enabled interrupt source, so no need to check if it triggered.
+			if (in_learn_mode_flag) {
+							
+				// We are in learning mode, so twitch the hand about once a sec
+				// We do not update the phase, so stepping the same phase just moves the hand forward a bit but then it pulls back again. 
+			
+				// TODO: This could be slow depending on LEARN_MODE_TICKS_PER_TWITCH. Add a 2nd counter. 
+				if ( (current_ticks % LEARN_MODE_TICKS_PER_TWITCH) == 0) {		// This is a quick way to do it when ticks per twitch is a power of two, very slow otherwise. 
+						
+					// Stepping without changing the phase moves the motor forward a bit and then back again, generating a twitch. 
+					step(motor_phase);			
+				}
+			
+			} else {
+				
+				/* 
+			       OK, this is complicated.
+				
+				   we need to move (steps_per_revolution/ticks_per_revolution) on each tick. This is steps/tick. 60 steps per revolution for a period of 60 ticks = 1 step per tick, which is the first useful value. Then comes 60 steps per revolution / 61 ticks_per_revolution which is a little less than 1 step per tick.
+				   so on each tick, we add the number of number of steps_per_revolution and then see if it greater than ticks_per_revolution....
+				      S/R   A   T/R    Step?
+					  ==== ==== ====  ======
+				   1.  60    0    61    N
+				   2.  60   60    61    N
+				   3.  60  120    61    Y   subtract 61 from A
+				   4.  60  119    61    Y   subtract 61 from A
+				   5.  60  118    61    Y   subtract 61 from A
+				    (step each iteration until A drops to 0, which is 12
+					
+				*/									
+				
+				step_accumulator += STEPS_PER_ROTATION_SEC_HAND;
+				
+				if (step_accumulator>=ticks_per_rotation) {
+				
+					// We have ticked enough times that there is now enough time for a step
+					
+					// Time to move the hand
+					
+					motor_phase = !motor_phase;		// switch phase so hand moves one step forward
+					step( motor_phase );
+					
+					step_accumulator -= ticks_per_rotation;
+					
+				}
+												
+			} // if in learn mode
+						
+		}  // INT went low LOW
 		
-		if (in_learn_mode_flag) {
-			
-			// We are in learning mode, so twittle the hand about once a sec
-			// We do not update the phase, so stepping the same phase just moves the hand forward a bit but then it pulls back again. 
-			
-			if ( (current_ticks & 7) == 0) {		// This is a quick way to do it
-				step(motor_phase);			
-			}
-			
-		} else {
-			
-			if (current_ticks*60>=period_ticks) {			// 60 steps per rotation *  1 rotation per period  * period_ticks per rotation 
-				// Time to move the hand 
-				
-				motor_phase = !motor_phase;		// switch phase so hand moves one step forward
-				step( motor_phase );
-				current_ticks -= period_ticks;  // Rather than just resetting current_ticks to 0, this will bresenham us to always accumulate and eventually compensate for the error term. 
-			}
-			
-			
-		}
-		
-		current_ticks++;		// increments the tick counter
-				
-		old_port_bits=new_port_bits;
-				
 	}
 
 	
