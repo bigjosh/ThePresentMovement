@@ -612,14 +612,15 @@ void waitButtonPress() {
 
 template <typename Func>
 void inline onNextWakeEvent(  Func f  ) {
-	sleep_cpu();
-	CLRBIT( RX8900INT_PORT , RX8900INT_BIT );			// Disable the pull up while the RX8900 pulls ~INT line low for a fixed 7ms.
+	sleep_cpu();	
+	CLRBIT( RX8900INT_PORT , RX8900INT_BIT );		// Disable the pull up while the RX8900 pulls ~INT line low for a fixed 7ms. Do this first to minimize power wasted through that resistor. 
+	CLRBIT( PCMSK , RX8900INT_PCMSK );			    // Block any interrupt from the INT pin while it is rising again. 
+	
 	f();
-	cli();
 	sleep16ms();
-	SETBIT( RX8900INT_PORT , RX8900INT_BIT );			// Clear to reenable the pull-up since the RX8900 should not be pull-ing this down any more
+	SETBIT( RX8900INT_PORT , RX8900INT_BIT );		// Clear to reenable the pull-up since the RX8900 should not be pull-ing this down any more
+	SETBIT( PCMSK , RX8900INT_PCMSK );				// Re-Enable interrupt on /INT pin change to wake us when RTC says we are ready for next tick.	
 	CLRBIT( GIFR , PCIF );							// Clear the interrupt flag so we will only see a new interrupt.
-	sei();	
 }
 
 
@@ -756,15 +757,14 @@ int main(void)
 	// OK, Now we know the user pushed and released the button so now we can do startup spin test.
 	// We will go 180 degrees around the clock face, driven by the RX8900 timer. This tests that the motor works and
 	// that the timer works. 
+
+	// We need 4 * 1/64th seconds = 62.5ms to get at least 50ms per phase using the 1/64th resolution timer.
 	
-	const int ms_minimum_per_spin_phase = 50;		// 50ms per tick is safe and matches the original drive circuit timing. We can likely get this much lower, but requires some testing. 
-	
-	//rx8900_fixed_timer_set_count( (ms_minimum_per_spin_phase+(MS_PER_64TH_S-1)) /MS_PER_64TH_S  );		// Set the counter to make enough 1/64ths to get us to the minimum ms per tick by rounding up.
-	
-	rx8900_fixed_timer_set_count( 5 );		// Set the counter to make enough 1/64ths to get us to the minimum ms per tick by rounding up.
+	rx8900_fixed_timer_set_count( 4 );		// Set the counter to make enough 1/64ths to get us to the minimum ms per tick by rounding up.
+		
+	// That makes for 62.5ms per phase * 2 phases per tick * 1800 ticks per half rotaton = 225 seconds to make a 180 degree rotation. 
 	
 	rx8900_fixed_timer_start_64thsecs();		// Start generating pulses on /INT based on the above set counter number of 1/64ths of a second.
-	//rx8900_fixed_timer_start_secs();
 	
 	// Now quickly tick a half revolution around the clock face to confirm everything is working. With 50ms phases, the 50ms rounds up to 15.6ms*4 = 62.4ms per phase = 124.8ms per tick = 3.74400 minutes to make 1/2 revolution. 
 	// Note that this would have been much easier to do with simple `_delay_ms()`, but this way we confirm that the RX8900 is working and all lines are connected.
@@ -774,53 +774,23 @@ int main(void)
 	for( uint16_t i=0; i< (TICKS_PER_ROTATION/2)/2 ; i++ ) {
 		
 		asm("nop");
-		
-		//auto p = [](){ int a=0; a++; };
-		
-		//onNextWakeEvent( [](){ motorPhaseOn<A>(); } );
+			
+		onNextWakeEvent( [](){ motorPhaseOn<A>(); } );
 		
 		asm("nop");
 		
-		sleep_cpu();
-		CLRBIT( RX8900INT_PORT , RX8900INT_BIT );			// Disable the pull up while the RX8900 pulls ~INT line low for a fixed 7ms.
-		motorPhaseOn<A>();		
-		sleep16ms();
-		SETBIT( RX8900INT_PORT , RX8900INT_BIT );			// Clear to reenable the pull-up since the RX8900 should not be pull-ing this down any more
-		CLRBIT( GIFR , PCIF );								// Clear the interrupt flag so we will only see a new interrupt.		
+		onNextWakeEvent( [](){ motorPhaseOff<A>(); } );
 
 		asm("nop");
-
-		sleep_cpu();
-		CLRBIT( RX8900INT_PORT , RX8900INT_BIT );			// Disable the pull up while the RX8900 pulls ~INT line low for a fixed 7ms.
-		motorPhaseOff<A>();
-		sleep16ms();
-		SETBIT( RX8900INT_PORT , RX8900INT_BIT );			// Clear to reenable the pull-up since the RX8900 should not be pull-ing this down any more
-		CLRBIT( GIFR , PCIF );							// Clear the interrupt flag so we will only see a new interrupt.
 		
-		sleep_cpu();
-		CLRBIT( RX8900INT_PORT , RX8900INT_BIT );			// Disable the pull up while the RX8900 pulls ~INT line low for a fixed 7ms.
-		motorPhaseOn<B>();
-		sleep16ms();
-		SETBIT( RX8900INT_PORT , RX8900INT_BIT );			// Clear to reenable the pull-up since the RX8900 should not be pull-ing this down any more
-		CLRBIT( GIFR , PCIF );							// Clear the interrupt flag so we will only see a new interrupt.
+		onNextWakeEvent( [](){ motorPhaseOn<B>(); } );
 		
-		sleep_cpu();
-		CLRBIT( RX8900INT_PORT , RX8900INT_BIT );			// Disable the pull up while the RX8900 pulls ~INT line low for a fixed 7ms.
-		motorPhaseOff<B>();
-		sleep16ms();
-		SETBIT( RX8900INT_PORT , RX8900INT_BIT );			// Clear to reenable the pull-up since the RX8900 should not be pull-ing this down any more
-		CLRBIT( GIFR , PCIF );							// Clear the interrupt flag so we will only see a new interrupt.
-
-		/*
-		_delay_ms(50);
-		motorPhaseOn<A>();
-		_delay_ms(50);
-		motorPhaseOff<A>();
-		_delay_ms(50);
-		motorPhaseOn<B>();
-		_delay_ms(50);
-		motorPhaseOff<B>();
-		*/
+		asm("nop");
+		
+		onNextWakeEvent( [](){ motorPhaseOff<B>(); } );
+			
+		asm("nop");
+			
 		
 	}
 	
