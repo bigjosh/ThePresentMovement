@@ -788,10 +788,7 @@ int main(void)
 	
 	static_assert( (TICKS_PER_ROTATION % 4) == 0  , "This code assumes that we can do a half rotation with a balanced number of A and B phases." );
 	
-	#warning
-//	for( uint16_t i=0; i< (TICKS_PER_ROTATION/2)/2 ; i++ ) {
-	for( uint16_t i=0; i< 100 ; i++ ) {
-		
+	for( uint16_t i=0; i< (TICKS_PER_ROTATION/2)/2 ; i++ ) {	
 							
 		onNextINTWakeEvent( [](){ motorPhaseOn<A>(); } );
 				
