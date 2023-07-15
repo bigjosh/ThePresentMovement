@@ -353,27 +353,24 @@ EMPTY_INTERRUPT( PCINT0_vect );
 // Uses watchdog for power savings, so interrupts must be on 
 // Assumes no other interrupt sources can wake us
 void sleep1s() {
-	WDTCR = _BV(WDIE) | _BV( WDE ) | _BV( WDP2 ) | _BV( WDP1 );		// 1s, interrupt enable
+	WDTCR = _BV(WDIE) | _BV( WDP2 ) | _BV( WDP1 );		// 1s, interrupt enable
 	sleep_cpu();
-	WDTCR = _BV(WDCE) | _BV(WDE);	// Allow change the WDE bit
 	WDTCR = 0;						// Disable WDT	
 }
 
 // Uses watchdog for power savings, so interrupts must be on
 // Assumes no other interrupt sources can wake us
 inline void sleep16ms() {
-	WDTCR = _BV(WDIE) | _BV( WDE ) ;		// 16ms, interrupt enable
+	WDTCR = _BV(WDIE);		// 16ms, interrupt enable on watchdog
 	sleep_cpu();
-	WDTCR = _BV(WDCE) | _BV(WDE);	// Allow change the WDE bit
-	WDTCR = 0;						// Disable WDT
+	WDTCR = 0;				// Disable WDT
 }
 
 // Uses watchdog for power savings, so interrupts must be on
 // Assumes no other interrupt sources can wake us
 inline void sleep32ms() {
-	WDTCR = _BV(WDIE) | _BV( WDE ) |  _BV( WDP0 );		// 32ms, interrupt enable
+	WDTCR = _BV(WDIE) |  _BV( WDP0 );		// 32ms, interrupt enable
 	sleep_cpu();
-	WDTCR = _BV(WDCE) | _BV(WDE);	// Allow change the WDE bit
 	WDTCR = 0;						// Disable WDT
 }
 
