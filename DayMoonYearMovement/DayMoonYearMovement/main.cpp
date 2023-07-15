@@ -241,12 +241,6 @@ void rx8900_ex_reg_set( uint8_t v ) {
 }
 
 
-void rx8900_fixed_timer_stop() {
-
-	rx8900_reg_set( RX8900_EXTENTION_REG , 0x00 ); // Disable fixed timer so when we start, it starts at the top of the period
-	
-}
-
 // Start fixed timer with period minutes whatever last set in set_fixed_time_count()
 
 void rx8900_fixed_timer_start_mins() {
@@ -269,6 +263,15 @@ void rx8900_fixed_timer_start_secs() {
 void rx8900_fixed_timer_start_64thsecs() {
 
 	rx8900_reg_set( RX8900_EXTENTION_REG , RX8900_EXTENTION_REG_TE_MASK | RX8900_EXTENTION_REG_TSEL_64S_MASK ); // Enable fixed timer, 15.6ms base clock
+	
+}
+
+
+// TODO: Test if the output freq selection in FSELx matters for power if FOUT=0.
+
+void rx8900_fixed_timer_stop() {
+
+	rx8900_reg_set( RX8900_EXTENTION_REG , 0x00 ); // Disable fixed timer
 	
 }
 
@@ -339,6 +342,10 @@ void rx8900_setup(void) {
 
 
 // We only need interrupts to wake us, so return from the ISR as quickly as possible. 
+// I do not like that we have to pay for all these pushes and pops, but I do not see a clean way around it. 
+// We could maybe save the IRET at the end by just directly sleeping after the ISR runs, but then we have to periodically clean the stack up. :/
+
+// TODO: Confirmed that these compile to an RJMP to an IRET. We should just put the IRET in the vector table and save a couple of cycles.
 
 // Called when watchdog expires
 EMPTY_INTERRUPT( WDT_vect);
@@ -481,7 +488,7 @@ void static inline motorPhaseOn(){
 template <phase_t phase>
 void inline motorPhaseOff(){
 	CLRBIT(MOVEMENT_DDR  , MOVEMENT_BIT);		// turn off drive
-	CLRBIT(MOVEMENT_PORT , MOVEMENT_BIT);		// turn off Pull-up. This line is superflous in phase B, but we keep in to equalize battery wear. 
+	CLRBIT(MOVEMENT_PORT , MOVEMENT_BIT);		// turn off Pull-up. This line is superfluous in phase B, but we keep in to equalize battery wear. 
 }
 
 
@@ -605,10 +612,17 @@ void waitButtonPress() {
 	
 }
 
+// Sleep and wait for next interrupt to wake - presumably from INT pin change.
+// Then disables the pull-up on INT for 16ms to avoid burning power on it. 
+// Takes ~32ms to execute so make sure INT pin changes are at least ~50ms apart. 
 
+// Assumes INT bit in PCMSK is NOT set, and leaves it that way. 
+
+// implemented with lambdas so that this code will inline where called. 
 
 template <typename Func>
 void inline onNextWakeEvent(  Func f  ) {
+	SETBIT( PCMSK , RX8900INT_PCMSK );				// Enable change interrupt on /INT pin change from RTC.	
 	sleep_cpu();	
 	CLRBIT( RX8900INT_PORT , RX8900INT_BIT );		// Disable the pull up while the RX8900 pulls ~INT line low for a fixed 7ms. Do this first to minimize power wasted through that resistor. 
 	CLRBIT( PCMSK , RX8900INT_PCMSK );			    // Block any interrupt from the INT pin while it is rising again. 
@@ -616,8 +630,7 @@ void inline onNextWakeEvent(  Func f  ) {
 	f();
 	sleep16ms();
 	SETBIT( RX8900INT_PORT , RX8900INT_BIT );		// Clear to reenable the pull-up since the RX8900 should not be pull-ing this down any more
-	SETBIT( PCMSK , RX8900INT_PCMSK );				// Re-Enable interrupt on /INT pin change to wake us when RTC says we are ready for next tick.	
-	CLRBIT( GIFR , PCIF );							// Clear the interrupt flag so we will only see a new interrupt.
+	sleep16ms();									// Allow pullup to pull pin up. 16ms way too long here, but it is the shortest watchdog time we have. Maybe a while ( int pin is low ); would use less power here? Sleep with WDT uses less than 5uA.
 }
 
 
@@ -665,6 +678,13 @@ int main(void)
 	
 	SETBIT( UNUSEDPIN_PORT , UNUSEDPIN_BIT );		// Pull unused pin high. This pin is connected so we don't want it to float and waste power. Is pull-up better than drive-up or drive-low? I don't know.
 	
+	
+	// TODO: Someday measure the voltage on this pin to get fly back voltage to be able to drive the lavet as a closed loop harmonic stepper. 
+	SETBIT( DIDR0 , ADC2D );						// Turn off digital input buffer on the pin connected to the motor windings since this will be floating most of the time. 
+	
+	
+	// TODO: Disable unused stuff with PRR
+	
 	i2c_init();										// This activates the pull-ups on the i2c SDA and SCL pins. 
 	
 	_delay_ms(10);		// Give the pull-ups a chance to pull the voltages. Don't use the WDT-based waits because they might get interrupted by the above changing pins. 
@@ -694,9 +714,11 @@ int main(void)
 	// Note that individual pins must also be enabled in the mask
 	// Used to wake us every time the fixed-cycle timer pulls /INT low or when the button is pressed (each must be enabled in PCMSK)
 	SETBIT( GIMSK  , PCIE );				//When the PCIE bit is set (one) and the I-bit in the Status Register (SREG) is set (one), pin change interrupt is enabled.
+	
+	
+	// Now we will wait for initial button press
+	
 
-
-	CLRBIT( GIFR , PCIF );			   // Clear the interrupt flag so we will only see a new interrupt.
 	SETBIT( PCMSK , BUTTON_PCMSK );	   // Enable change interrupt on the button pin. You must also sei() and enable PCIE in GIMSK to enable all pin change interrupts
 	sei();							   // And finally ready to actually enable interrupts. Still need to enable individual pins in the mask as needed.
 
@@ -747,8 +769,6 @@ int main(void)
 	
 	CLRBIT( PCMSK , BUTTON_PCMSK );	   // Disable the interrupt that got us here so we now ignore button changes
 	
-	// *** Enable interrupt on pin connected to /INT signal from RTC (global pin interrupt already enabled above)
-	SETBIT( PCMSK , RX8900INT_PCMSK );	   // Enable change interrupt on /INT pin change from RTC.
 	
 	
 	// OK, Now we know the user pushed and released the button so now we can do startup spin test.
@@ -769,42 +789,47 @@ int main(void)
 	static_assert( (TICKS_PER_ROTATION % 4) == 0  , "This code assumes that we can do a half rotation with a balanced number of A and B phases." );
 	
 	for( uint16_t i=0; i< (TICKS_PER_ROTATION/2)/2 ; i++ ) {
-		
-		asm("nop");
-			
+							
 		onNextWakeEvent( [](){ motorPhaseOn<A>(); } );
-		
-		asm("nop");
-		
+				
 		onNextWakeEvent( [](){ motorPhaseOff<A>(); } );
-
-		asm("nop");
-		
+	
 		onNextWakeEvent( [](){ motorPhaseOn<B>(); } );
-		
-		asm("nop");
-		
+				
 		onNextWakeEvent( [](){ motorPhaseOff<B>(); } );
-			
-		asm("nop");
-			
-		
+					
 	}
+	
+	// OK, now we get ready for the long sleep in the shipping box until the user presses the button again to start the clock. 
+	
+	// First turn off the INT pulses that were driving the fast spin to save power.
+	
+	rx8900_fixed_timer_stop();
+	
 	
 	// Now we wait for user to push button to start real operation. 
 	
-	while (1);
-
-
 	
+	SETBIT( PCMSK , BUTTON_PCMSK );	   // Enable change interrupt on the button pin. You must also sei() and enable PCIE in GIMSK to enable all pin change interrupts
+
+	// Remember that button pin is normally pulled high and pushing it makes it low.
+	
+	// Wait for button to be in pressed state... (checks for a stuck down button)
+	
+	while ( GETBIT( BUTTON_PIN , BUTTON_BIT )) {
+		
+		// sleep until changes and then test again
+		sleep_cpu();						// Sleep - we will wake up when button state changes.
+		
+	}	
+	
+	
+	// OK, user pressed the button so now we are ready to rock and roll. 
+
+	CLRBIT( PCMSK , BUTTON_PCMSK );			// Enable change interrupt on the button pin. You must also sei() and enable PCIE in GIMSK to enable all pin change interrupts		
 	CLRBIT( BUTTON_PORT , BUTTON_BIT );		// Disable the pull-up
-	SETBIT( BUTTON_DDR , BUTTON_BIT );		// Drive button pin low so it will not use any power (we never need to check it again)
-	// Note we do not leave pull-up on since then would use power as long as button is pressed.
+	SETBIT( BUTTON_DDR , BUTTON_BIT );		// Drive button pin low so it will not use any power (we never need to check it again)	
 	
-	
-	
-	
-
 	
 	// Set the fixed timer period count
 	// (we will specify if this count is minutes or seconds when we start the fixed timer
@@ -816,33 +841,41 @@ int main(void)
 	// One rotation per day per 24 hours = 24 seconds per tick (1 second per tick= 1 hour per rotation)
 	rx8900_fixed_timer_set_count( 24 );
 			
-	
-			
+				
 	//#warning test with 1 second ticks
 	//rx8900_fixed_timer_set_count(1);		// two second ticks
-
-
-	CLRBIT( PCMSK , BUTTON_PCMSK );	   // Disable the interrupt that got us here so we now ignore button changes
-
-	
-	CLRBIT( BUTTON_PORT , BUTTON_BIT );		// Disable the pull-up
-	SETBIT( BUTTON_DDR , BUTTON_BIT );		// Drive button pin low so it will not use any power (we never need to check it again)
-											// Note we do not leave pull-up on since then would use power as long as button is pressed. 
-											
-	
+												
 	// *** Start out clock from this moment the button is pressed (behavior for now)
 	// The Timer Enable bit will be 0 now from reset(), so this will set TE to 1 and the timer will start at the top of the period. 	
 	
 	rx8900_fixed_timer_start_secs();	
-	normalStepMode();
+	
+
+	while (1) {
+		
+		// Phase A
+		
+		onNextWakeEvent( [](){ motorPhaseOn<A>(); } );
+			
+		// The above takes ~32ms. We will sleep another ~16ms to get us to ~48ms which is close enough to the target of 50ms coil on time. 
+		sleep16ms();					
+		motorPhaseOff<A>();
+		
+		// Phase B
+		
+		onNextWakeEvent( [](){ motorPhaseOn<B>(); } );
+		sleep16ms();
+		motorPhaseOff<B>();
+					
+	}
+	
+	
 	__builtin_unreachable();											
 
 	
 	// rx8900_fixed_timer_start_mins();
 	rx8900_fixed_timer_start_secs();
-
 	
-
 	// *** Show we woke	
 		
 	#define SECS_PER_SCOTTLIFE (1335721787UL)
