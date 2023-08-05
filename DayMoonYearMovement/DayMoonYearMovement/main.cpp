@@ -704,13 +704,14 @@ void inline onNextINTWakeEvent(  Func f  ) {
 	sleep16ms();									// Allow pullup to pull pin up. 16ms way too long here, but it is the shortest watchdog time we have. Maybe a while ( int pin is low ); would use less power here? Sleep with WDT uses less than 5uA.
 }
 
-// Signal there is an error by ticking n times with 500ms inbetween ticks, then pause 2 seconds, repeat. 
+// Signal there is an error by ticking n times with 500ms inbetween ticks, then pause 2 seconds, repeat 5 times. 
+// We only repeat 5 times to make sure this error mode can not be mistaken for the initial ticking phase. 
 // Never returns
 
 void errormode( uint16_t n ) {
 	
-	while (1) {
-		
+	for( uint8_t j = 0; j<5 ; j++ ) {
+
 		for( uint16_t i = 0 ; i < n ; i ++ ) {
 			
 			motorPhaseOn<A>();
@@ -727,9 +728,13 @@ void errormode( uint16_t n ) {
 		
 		}
 		
-		_delay_ms(1500);
+		_delay_ms(1500);		
 		
 	}
+	
+	cli();
+	sleep_cpu();
+	
 	__builtin_unreachable();
 }
 
