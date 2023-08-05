@@ -147,14 +147,6 @@ void div8Clock() {
 #define MOVEMENT_DDR	DDRB
 #define MOVEMENT_BIT	4
 
-
-// Unused pin. Currently unconnected.
-
-#define UNUSEDPIN_PORT	PORTB
-#define UNUSEDPIN_DDR	DDRB
-#define UNUSEDPIN_BIT	0
-
-
 // Push button
 
 #define BUTTON_PORT		PORTB
@@ -779,8 +771,6 @@ int main(void)
 	SETBIT( BUTTON_PORT , BUTTON_BIT);				// Enable button pull-up. Button connects pin to ground.
 	
 	SETBIT( RX8900INT_PORT , RX8900INT_BIT );		// Enable pull-up on /INT pin. This is open-drain output on the RX8900 so we need to pull it up with the ATTINY.
-	
-	SETBIT( UNUSEDPIN_PORT , UNUSEDPIN_BIT );		// Pull unused pin high. This pin is unconnected so we don't want it to float and waste power. Is pull-up better than drive-up or drive-low? I don't know.
 	
 	
 	// TODO: Someday measure the voltage on this pin to get fly back voltage to be able to drive the lavet as a closed loop harmonic stepper. 
