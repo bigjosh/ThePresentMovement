@@ -1,7 +1,2 @@
-avrdude -Cavrdude.conf -v -pattiny25 -cusbtiny -Uflash:w:month.hex:i -u
-@if NOT ["%errorlevel%"]==["0"] (
-    @color 47
-    @echo ERROR CLOCK NOT PROGRAMMED!
-    pause
-    exit /b %errorlevel%
-)
+REM https://www.google.com/search?q=%28%28lunar+month%29+%2F+3600%29+in+seconds
+program.bat 2 709

@@ -69,13 +69,12 @@ unsigned getCountFromEEPROM() {
 	
 }
 
-// We will quickly tick the hand this many times when the button is first pressed.
-// We use this to test to make sure the movement is working and also as a visual double check for which movement type this is.
+// How many double ticks should we execute durring the start-up button press?
+// These ticks give visual feedback that the motor is working.
+// We specify half the number of ticks we actually want os we know we always will land on phase A.
 
-unsigned getStartTicksFromEEPROM() {
-	
-	return eeprom_read_word( (const uint16_t *) 0x0006 );	
-	
+unsigned getStartDoubleTicksFromEEPROM() {
+	return eeprom_read_word( (const uint16_t *) 0x0006 );		
 }
 
 
@@ -781,7 +780,7 @@ int main(void)
 	
 	SETBIT( RX8900INT_PORT , RX8900INT_BIT );		// Enable pull-up on /INT pin. This is open-drain output on the RX8900 so we need to pull it up with the ATTINY.
 	
-	SETBIT( UNUSEDPIN_PORT , UNUSEDPIN_BIT );		// Pull unused pin high. This pin is connected so we don't want it to float and waste power. Is pull-up better than drive-up or drive-low? I don't know.
+	SETBIT( UNUSEDPIN_PORT , UNUSEDPIN_BIT );		// Pull unused pin high. This pin is unconnected so we don't want it to float and waste power. Is pull-up better than drive-up or drive-low? I don't know.
 	
 	
 	// TODO: Someday measure the voltage on this pin to get fly back voltage to be able to drive the lavet as a closed loop harmonic stepper. 
@@ -794,7 +793,7 @@ int main(void)
 	
 	_delay_ms(10);		// Give the pull-ups a chance to pull the voltages. Don't use the WDT-based waits because they might get interrupted by the above changing pins. 
 	
-	//  ALL PINS NOW CONFIGURED FOR PULL-IP
+	//  ALL PINS NOW CONFIGURED FOR PULL-UP
 	
 
 	// Get timer settings ready (will start it later)	
@@ -819,7 +818,7 @@ int main(void)
 	// Note that individual pins must also be enabled in the mask
 	// Used to wake us every time the fixed-cycle timer pulls /INT low or when the button is pressed (each must be enabled in PCMSK)
 	SETBIT( GIMSK  , PCIE );				//When the PCIE bit is set (one) and the I-bit in the Status Register (SREG) is set (one), pin change interrupt is enabled.
-	
+		
 	
 	// Now we will wait for initial button press
 	
@@ -840,7 +839,7 @@ int main(void)
 
 	// Remember that button pin is normally pulled high and pushing it makes it low. 
 
-	// Wait for button to be in unpressed state... (checks for a stuck down button)
+	// (checks for a stuck down button at startup)
 	
 	if ( !GETBIT( BUTTON_PIN , BUTTON_BIT )) {
 		
@@ -886,37 +885,43 @@ int main(void)
 	
 	
 	// OK, Now we know the user pushed and released the button so now we can do startup spin test.
-	// We will go 180 degrees around the clock face, driven by the RX8900 timer. This tests that the motor works and
+	// We will go quickly around the clock face, driven by the RX8900 timer. This tests that the motor works and
 	// that the timer works. 
 
 	// We need 4 * 1/64th seconds = 62.5ms to get at least 50ms per phase using the 1/64th resolution timer.
-		
-	// That makes for 62.5ms per phase * 2 phases per tick * 1800 ticks per half rotaton = 225 seconds to make a 180 degree rotation. 
+
+	// At 109ms per phase, it would take ~197 seconds = ~3.28 minutes to make a full 360 deg rotation. 
 	
+	rx8900_fixed_timer_set_count(7);			// 7/64th of a second per tick phase = 109ms per phase which should be enough time for the initial 50ms and then rest 50ms. 
 	rx8900_fixed_timer_start_64thsecs();		// Start generating pulses on /INT based on the above set counter number of 1/64ths of a second.
 	
-	// Now quickly tick a half revolution around the clock face to confirm everything is working. With 50ms phases, the 50ms rounds up to 15.6ms*4 = 62.4ms per phase = 124.8ms per tick = 3.74400 minutes to make 1/2 revolution. 
-	// Note that this would have been much easier to do with simple `_delay_ms()`, but this way we confirm that the RX8900 is working and all lines are connected.
+	// Note that the interrupt from the INT pin will get enabled inside onNextINTWakeEvent()
+		
+	// Now quickly spin the hand the number of ticks specified in the EEPROM config.
+	// This tests the motor and gives some visual feedback that things are working. 
+		
+	uint16_t startup_doubleticks = getStartDoubleTicksFromEEPROM();
 	
-	static_assert( (TICKS_PER_ROTATION % 4) == 0  , "This code assumes that we can do a half rotation with a balanced number of A and B phases." );
-	
-	for( uint16_t i=0; i< (TICKS_PER_ROTATION/2)/2 ; i++ ) {	
+	for( uint16_t i=0; i< startup_doubleticks ; i++ ) {
 							
 		onNextINTWakeEvent( [](){ motorPhaseOn<A>(); } );
-				
-		onNextINTWakeEvent( [](){ motorPhaseOff<A>(); } );
+		// The above takes ~32ms. We will sleep another ~16ms to get us to ~48ms which is close enough to the target of 50ms coil on time.
+		sleep16ms();			
+		motorPhaseOff<A>();
 	
 		onNextINTWakeEvent( [](){ motorPhaseOn<B>(); } );
-				
-		onNextINTWakeEvent( [](){ motorPhaseOff<B>(); } );
+		// The above takes ~32ms. We will sleep another ~16ms to get us to ~48ms which is close enough to the target of 50ms coil on time.
+		sleep16ms();
+		motorPhaseOff<B>();
 					
 	}
 	
-	// OK, now we get ready for the long sleep in the shipping box until the user presses the button again to start the clock. 
-	
-	// First turn off the INT pulses that were driving the fast spin to save power.
+	// Turn off the INT pulses that were driving the fast spin to save power.
 	
 	rx8900_fixed_timer_stop();
+	
+	
+	// OK, now we get ready for the long sleep in the shipping box until the user presses the button again to start the clock. 
 	
 	
 	// Now we wait for user to push button to start real operation. 
@@ -945,7 +950,7 @@ int main(void)
 	
 	// OK, user pressed the button so now we are ready to rock and roll. 
 
-	CLRBIT( PCMSK , BUTTON_PCMSK );			// Enable change interrupt on the button pin. You must also sei() and enable PCIE in GIMSK to enable all pin change interrupts		
+	CLRBIT( PCMSK , BUTTON_PCMSK );			// Disable change interrupt on the button pin- we will never use it again. 
 	CLRBIT( BUTTON_PORT , BUTTON_BIT );		// Disable the pull-up
 	SETBIT( BUTTON_DDR , BUTTON_BIT );		// Drive button pin low so it will not use any power (we never need to check it again)	
 		
