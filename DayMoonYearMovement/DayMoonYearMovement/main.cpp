@@ -15,8 +15,72 @@
 
 #include <assert.h>				// static_assert()
 
+#include <avr/eeprom.h>
+
+
+// Errormode looks like the hand twitching. Count the twitches to see which error.
+
+#define ERRORMODE_COOKIE    2		// Magic cookie not found in EEPROM - EEPROM probably not properly programmed.
+#define ERRORMODE_TIMEBASE	3		// If a bad timebase is specified in the EEPROM
+#define ERRORMODE_BUTTON	4		// The button was stuck down at power-up
+
+// We use the EEPROM to configure how the movement operates (ie which kind of clock it is in)
+
+// What timebase to use for counting clicks? 
+// NOTE: Use timebases < 1 second with care since the constant /INT signal will make it hard to 
+// reprogram the unit since it shares the pin with the ISP.
+
+// 0x00 = 4096 Hz - Once per 244.14 us
+// 0x01 =   64 Hz - Once per 15.625 ms 
+// 0x02 = "Second" update /Once per second 
+// 0x03 = "Minute" update /Once per minute 
+
+enum EEPROM_TIMEBASE {
+	TB_4096THS	= 0x00,
+	TB_64THS	= 0x01,
+	TB_1S		= 0x02,
+	TB_1M		= 0x03,	
+};
+
+const unsigned EEPROM_COOKIE = 0x4C4A;
+
+
+// We add a magic cookie at the beginning of the EERPOM record so we know it was programmed.
+// Could also be used later to version the record format
+
+unsigned getCookieFromEEPROM() {
+	
+	return eeprom_read_word( (const uint16_t *) 0x0000 );
+	
+}
+
+
+unsigned getTimebaseFromEEPROM() {
+	
+	return eeprom_read_word( (const uint16_t *) 0x0002 );
+	
+}
+
+// How many clicks of the timebase per tick that gets sent to the MCU over the /INT line?
+
+unsigned getCountFromEEPROM() {
+	
+	return eeprom_read_word( (const uint16_t *) 0x0004 );
+	
+}
+
+// We will quickly tick the hand this many times when the button is first pressed.
+// We use this to test to make sure the movement is working and also as a visual double check for which movement type this is.
+
+unsigned getStartTicksFromEEPROM() {
+	
+	return eeprom_read_word( (const uint16_t *) 0x0006 );	
+	
+}
+
+
 // From the factory, the CLKDIV8 fuse is set, to we are only running at 1Mhz
-// This will switch us to full speed 8Mhz, which is fine becuase we know we will have >3V from the 2xAA batteries. 
+// This will switch us to full speed 8Mhz, which is fine because we know we will have >3V from the 2xAA batteries. 
 
 void fullSpeedClock() {
 	CLKPR = (1<<CLKPCE); // Prescaler enable
@@ -180,6 +244,7 @@ void movement_mid_off() {
 #define RX8900_EXTENTION_REG_TSEL_SEC_MASK	 ( RX8900_EXTENTION_REG_TSEL1_MASK )										// "Second" update / Once per second
 #define RX8900_EXTENTION_REG_TSEL_MIN_MASK	 ( RX8900_EXTENTION_REG_TSEL1_MASK |  RX8900_EXTENTION_REG_TSEL0_MASK )		// "Minute" update / Once per minute
 #define RX8900_EXTENTION_REG_TSEL_64S_MASK	 ( RX8900_EXTENTION_REG_TSEL0_MASK )										// "1/64ths" update / Once per ~15.6ms
+#define RX8900_EXTENTION_REG_TSEL_4096S_MASK ( RX8900_EXTENTION_REG_TSEL0_MASK )										// "1/4096ths" update / Once per ~244us
 
 
 #define RX8900_FLAG_REG        0x0e			
@@ -242,6 +307,12 @@ void rx8900_ex_reg_set( uint8_t v ) {
 
 
 // Start fixed timer with period minutes whatever last set in set_fixed_time_count()
+
+void rx8900_fixed_timer_start( const unsigned char tsel ) {
+
+	rx8900_reg_set( RX8900_EXTENTION_REG ,  RX8900_EXTENTION_REG_TE_MASK | tsel  ); // Enable fixed timer
+	
+}
 
 void rx8900_fixed_timer_start_mins() {
 
@@ -633,6 +704,35 @@ void inline onNextINTWakeEvent(  Func f  ) {
 	sleep16ms();									// Allow pullup to pull pin up. 16ms way too long here, but it is the shortest watchdog time we have. Maybe a while ( int pin is low ); would use less power here? Sleep with WDT uses less than 5uA.
 }
 
+// Signal there is an error by ticking n times with 500ms inbetween ticks, then pause 2 seconds, repeat. 
+// Never returns
+
+void errormode( uint16_t n ) {
+	
+	while (1) {
+		
+		for( uint16_t i = 0 ; i < n ; i ++ ) {
+			
+			motorPhaseOn<A>();
+			// The above takes ~32ms. We will sleep another ~16ms to get us to ~48ms which is close enough to the target of 50ms coil on time.
+			_delay_ms(15);
+			motorPhaseOff<A>();
+			_delay_ms(50);
+		
+			motorPhaseOn<B>();
+			// The above takes ~32ms. We will sleep another ~16ms to get us to ~48ms which is close enough to the target of 50ms coil on time.
+			_delay_ms(15);
+			motorPhaseOff<B>();
+			_delay_ms(500);
+		
+		}
+		
+		_delay_ms(1500);
+		
+	}
+	__builtin_unreachable();
+}
+
 
 
 #define TICKS_PER_ROTATION (3600)
@@ -722,15 +822,24 @@ int main(void)
 	SETBIT( PCMSK , BUTTON_PCMSK );	   // Enable change interrupt on the button pin. You must also sei() and enable PCIE in GIMSK to enable all pin change interrupts
 	sei();							   // And finally ready to actually enable interrupts. Still need to enable individual pins in the mask as needed.
 
+	// First check that our EEPROM is correctly programmed
+	
+	if (getCookieFromEEPROM()!=EEPROM_COOKIE) {
+		
+		errormode(ERRORMODE_COOKIE);
+		__builtin_unreachable();
+		
+	}
+	
+	
 
 	// Remember that button pin is normally pulled high and pushing it makes it low. 
 
 	// Wait for button to be in unpressed state... (checks for a stuck down button)
 	
-	while ( !GETBIT( BUTTON_PIN , BUTTON_BIT )) {
+	if ( !GETBIT( BUTTON_PIN , BUTTON_BIT )) {
 		
-		// sleep until changes and then test again
-		sleep_cpu();						// Sleep - we will wake up when button state changes.		
+		errormode(ERRORMODE_BUTTON);		
 		
 	}
 	
@@ -776,8 +885,6 @@ int main(void)
 	// that the timer works. 
 
 	// We need 4 * 1/64th seconds = 62.5ms to get at least 50ms per phase using the 1/64th resolution timer.
-	
-	rx8900_fixed_timer_set_count( 4 );		// Set the counter to make enough 1/64ths to get us to the minimum ms per tick by rounding up.
 		
 	// That makes for 62.5ms per phase * 2 phases per tick * 1800 ticks per half rotaton = 225 seconds to make a 180 degree rotation. 
 	
@@ -839,14 +946,35 @@ int main(void)
 		
 				
 	// *** Start out clock from this moment the button is pressed (behavior for now)
-	// The Timer Enable bit will be 0 now from reset(), so this will set TE to 1 and the timer will start at the top of the period. 	
-	
-	// One rotation per day per 24 hours = 24 seconds per tick (1 second per tick= 1 hour per rotation)
-	rx8900_fixed_timer_set_count( 24 );	
-	
-	rx8900_fixed_timer_start_secs();
 	
 
+	// Program the timer based on the user settings from EEPROM
+
+	rx8900_fixed_timer_set_count( getCountFromEEPROM() );
+
+	switch ( getTimebaseFromEEPROM() ) {
+
+		case EEPROM_TIMEBASE::TB_4096THS:
+		rx8900_fixed_timer_start( RX8900_EXTENTION_REG_TSEL_4096S_MASK );
+		break;
+
+		case EEPROM_TIMEBASE::TB_64THS:
+		rx8900_fixed_timer_start( RX8900_EXTENTION_REG_TSEL_64S_MASK );
+		break;
+
+		case EEPROM_TIMEBASE::TB_1S:
+		rx8900_fixed_timer_start( RX8900_EXTENTION_REG_TSEL_SEC_MASK );
+		break;
+
+		case EEPROM_TIMEBASE::TB_1M:
+		rx8900_fixed_timer_start( RX8900_EXTENTION_REG_TSEL_MIN_MASK );
+		break;
+
+		default:
+		errormode( ERRORMODE_TIMEBASE );
+
+	}
+			
 	while (1) {
 		
 		// Phase A
@@ -868,14 +996,9 @@ int main(void)
 	
 	__builtin_unreachable();											
 
-	
-	// rx8900_fixed_timer_start_mins();
-	rx8900_fixed_timer_start_secs();
-	
-	// *** Show we woke	
 		
-	#define SECS_PER_SCOTTLIFE (1335721787UL)
-	#define MINS_PERSCOTTLIFE (SECS_PER_SCOTTLIFE/SECS_PER_MIN)
+	//#define SECS_PER_SCOTTLIFE (1335721787UL)
+	//#define MINS_PERSCOTTLIFE (SECS_PER_SCOTTLIFE/SECS_PER_MIN)
 
 /*
 	
@@ -889,8 +1012,6 @@ int main(void)
 	// Start the fixed cycle timer (we set up the timer and specified the count above)
 	//rx8900_fixed_timer_start_secs();	
 
-	spin(  TICKS_PER_ROTATION / 2  );		// Make 180 deg rotation on button press to show we are working
-	
 			
 
 	
@@ -901,7 +1022,6 @@ int main(void)
 	//rx8900_fixed_timer_set_minutes(  TROPICALYEAR_MINS_PER_TICK );
 	//rx8900_fixed_timer_set_minutes(  1  );
 						
-	normalStepMode();			// Start stepping, never returns
 	
 	__builtin_unreachable();
 		
