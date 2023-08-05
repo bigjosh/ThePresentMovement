@@ -3,7 +3,7 @@ REM timebase can be 2=secs 3=mins
 REM Note that 0x384=900=The number of double ticks to make it half way around the face. 
 REM first program the EEPROM which is much slower so needs big B value
 color 07
-avrdude -Cavrdude.conf -pattiny25 -cusbtiny -e -U eeprom:w:0x4a,0x4c,%1,0x00,%2,0x00,0x84,0x03:m -v -B 500 -u
+avrdude -Cavrdude.conf -pattiny25 -cusbtiny -e -U eeprom:w:0x4a,0x4c,%1,0x00,%2,0x00,0x84,0x03:m -v -B 100 -u
 @if NOT ["%errorlevel%"]==["0"] (
     goto error
 
