@@ -1,7 +1,2 @@
-avrdude -Cavrdude.conf -v -pattiny25 -cusbtiny -Uflash:w:year.hex:i -u -B 3
-@if NOT ["%errorlevel%"]==["0"] (
-    @color 47
-    @echo ERROR CLOCK NOT PROGRAMMED!
-    pause
-    exit /b %errorlevel%
-)
+REM https://www.google.com/search?q=%28%281+year%29%2F3600%29+in+minutes
+program.bat 3 146

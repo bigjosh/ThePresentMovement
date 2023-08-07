@@ -676,7 +676,7 @@ void waitButtonPress() {
 
 // Sleep and wait for next interrupt to wake - presumably from INT pin change.
 // Then disables the pull-up on INT for 16ms to avoid burning power on it. 
-// Takes ~32ms to execute so make sure INT pin changes are at least ~50ms apart. 
+// Takes ~16ms to execute so make sure INT pin changes are at least ~50ms apart. 
 
 // Assumes INT bit in PCMSK is NOT set, and leaves it that way. 
 
@@ -690,9 +690,8 @@ void inline onNextINTWakeEvent(  Func f  ) {
 	CLRBIT( PCMSK , RX8900INT_PCMSK );			    // Block any interrupt from the INT pin while it is rising again. 
 	
 	f();
-	sleep16ms();
+	sleep16ms();									// The INT pin resets after ~7ms so by the time we wake up the RX8900 will not be pulling it low anymore
 	SETBIT( RX8900INT_PORT , RX8900INT_BIT );		// Clear to re-enable the pull-up since the RX8900 should not be pull-ing this down any more
-	sleep16ms();									// Allow pullup to pull pin up. 16ms way too long here, but it is the shortest watchdog time we have. Maybe a while ( int pin is low ); would use less power here? Sleep with WDT uses less than 5uA.
 }
 
 // Signal there is an error by ticking n times with 500ms inbetween ticks, then pause 2 seconds, repeat 5 times. 
@@ -707,13 +706,13 @@ void errormode( uint16_t n ) {
 			
 			motorPhaseOn<A>();
 			// The above takes ~32ms. We will sleep another ~16ms to get us to ~48ms which is close enough to the target of 50ms coil on time.
-			_delay_ms(15);
+			_delay_ms(50);
 			motorPhaseOff<A>();
 			_delay_ms(50);
 		
 			motorPhaseOn<B>();
 			// The above takes ~32ms. We will sleep another ~16ms to get us to ~48ms which is close enough to the target of 50ms coil on time.
-			_delay_ms(15);
+			_delay_ms(50);
 			motorPhaseOff<B>();
 			_delay_ms(500);
 		
@@ -792,6 +791,22 @@ int main(void)
 	// (also will stop any previously running fixed timer)
 	rx8900_setup();
 
+
+// 	// Test spin
+// 
+// 	while (1) {
+// 		
+// 		motorPhaseOn<A>();
+// 		_delay_ms(50);
+// 		motorPhaseOff<A>();
+// 		_delay_ms(50);
+// 		
+// 		motorPhaseOn<B>();
+// 		_delay_ms(50);
+// 		motorPhaseOff<B>();
+// 		_delay_ms(50);
+// 		
+// 	}
 
 	// *** Enable sleeping mode
 	
@@ -878,11 +893,11 @@ int main(void)
 	// We will go quickly around the clock face, driven by the RX8900 timer. This tests that the motor works and
 	// that the timer works. 
 
-	// We need 4 * 1/64th seconds = 62.5ms to get at least 50ms per phase using the 1/64th resolution timer.
+	// We need 3 * 1/64th seconds = ~47ms to get per phase using the 1/64th resolution timer.
 
-	// At 109ms per phase, it would take ~197 seconds = ~3.28 minutes to make a full 360 deg rotation. 
+	// 47ms per phase = 96ms per tick, so ~2.8 minutes to make a full 360 deg rotation. 
 	
-	rx8900_fixed_timer_set_count(7);			// 7/64th of a second per tick phase = 109ms per phase which should be enough time for the initial 50ms and then rest 50ms. 
+	rx8900_fixed_timer_set_count(3);			// 3/64th of a second per tick phase = ~47ms per phase which should be enough time. 
 	rx8900_fixed_timer_start_64thsecs();		// Start generating pulses on /INT based on the above set counter number of 1/64ths of a second.
 	
 	// Note that the interrupt from the INT pin will get enabled inside onNextINTWakeEvent()
@@ -890,19 +905,16 @@ int main(void)
 	// Now quickly spin the hand the number of ticks specified in the EEPROM config.
 	// This tests the motor and gives some visual feedback that things are working. 
 		
-	uint16_t startup_doubleticks = getStartDoubleTicksFromEEPROM();
+	uint16_t startup_doubleticks = 900;// getStartDoubleTicksFromEEPROM();
 	
 	for( uint16_t i=0; i< startup_doubleticks ; i++ ) {
 							
 		onNextINTWakeEvent( [](){ motorPhaseOn<A>(); } );
-		// The above takes ~32ms. We will sleep another ~16ms to get us to ~48ms which is close enough to the target of 50ms coil on time.
-		sleep16ms();			
-		motorPhaseOff<A>();
-	
-		onNextINTWakeEvent( [](){ motorPhaseOn<B>(); } );
-		// The above takes ~32ms. We will sleep another ~16ms to get us to ~48ms which is close enough to the target of 50ms coil on time.
-		sleep16ms();
-		motorPhaseOff<B>();
+		onNextINTWakeEvent( [](){ motorPhaseOff<A>(); } );
+		
+			
+		onNextINTWakeEvent( [](){ motorPhaseOn<B>(); } );	
+		onNextINTWakeEvent( [](){ motorPhaseOff<B>(); } );		
 					
 	}
 	
@@ -981,14 +993,14 @@ int main(void)
 		
 		onNextINTWakeEvent( [](){ motorPhaseOn<A>(); } );
 			
-		// The above takes ~32ms. We will sleep another ~16ms to get us to ~48ms which is close enough to the target of 50ms coil on time. 
-		sleep16ms();					
+		// The above takes ~16ms. We will sleep another ~32ms to get us to ~48ms which is close enough to the target of 50ms coil on time. 
+		sleep32ms();
 		motorPhaseOff<A>();
 		
 		// Phase B
 		
 		onNextINTWakeEvent( [](){ motorPhaseOn<B>(); } );
-		sleep16ms();
+		sleep32ms();
 		motorPhaseOff<B>();
 					
 	}
