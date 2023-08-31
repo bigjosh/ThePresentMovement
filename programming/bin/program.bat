@@ -8,7 +8,7 @@ avrdude -Cavrdude.conf -pattiny25 -cusbtiny -e -U eeprom:w:0x4a,0x4c,%1,0x00,%2,
     goto error
 
 )
-avrdude -Cavrdude.conf -v -pattiny25 -cusbtiny -U flash:w:program.hex:i -u -B 3
+avrdude -Cavrdude.conf -v -pattiny25 -cusbtiny -e -U flash:w:program.hex:i -u -B 3
 @if NOT ["%errorlevel%"]==["0"] (
     goto error
 

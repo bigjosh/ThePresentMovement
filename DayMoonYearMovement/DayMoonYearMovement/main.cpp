@@ -115,9 +115,10 @@ void div8Clock() {
 #define RX8900_SDA_BIT	1
 
 #define RX8900INT_PORT		PORTB
+#define RX8900INT_PIN		PINB
 #define RX8900INT_DDR		DDRB
 #define RX8900INT_BIT		2
-#define RX8900INT_PCMSK	PCINT2
+#define RX8900INT_PCMSK		PCINT2
 
 // Define these for the i2c code to see
 
@@ -670,8 +671,7 @@ void waitButtonPress() {
 	disableButton();
 	
 	sei();
-	
-	
+		
 }
 
 // Sleep and wait for next interrupt to wake - presumably from INT pin change.
@@ -686,12 +686,15 @@ template <typename Func>
 void inline onNextINTWakeEvent(  Func f  ) {
 	SETBIT( PCMSK , RX8900INT_PCMSK );				// Enable change interrupt on /INT pin change from RTC.	
 	sleep_cpu();	
+	// Right here, the INT pin is being weakly pulled up by the AVR and strongly pulled down by the RX8900 which wastes power for as long as these are fighting against each other. 
 	CLRBIT( RX8900INT_PORT , RX8900INT_BIT );		// Disable the pull up while the RX8900 pulls ~INT line low for a fixed 7ms. Do this first to minimize power wasted through that resistor. 
-	CLRBIT( PCMSK , RX8900INT_PCMSK );			    // Block any interrupt from the INT pin while it is rising again. 
+	CLRBIT( PCMSK , RX8900INT_PCMSK );			    // Block any interrupt from the INT pin while it is rising again.
 	
 	f();
 	sleep16ms();									// The INT pin resets after ~7ms so by the time we wake up the RX8900 will not be pulling it low anymore
-	SETBIT( RX8900INT_PORT , RX8900INT_BIT );		// Clear to re-enable the pull-up since the RX8900 should not be pull-ing this down any more
+	SETBIT( RX8900INT_PORT , RX8900INT_BIT );		// Re-enable the pull-up since the RX8900 should not be pull-ing this down any more. 
+	while (!GETBIT(RX8900INT_PIN, RX8900INT_BIT));	// Wait for pull-up to work. This can take some (small) amount of time due to capacitance on the line and also synchronization between PORT and PIN 
+													// https://electronics.stackexchange.com/questions/520903/avr-do-i-have-to-wait-for-the-internal-pullup-to-stabilize
 }
 
 // Signal there is an error by ticking n times with 500ms inbetween ticks, then pause 2 seconds, repeat 5 times. 
@@ -898,23 +901,24 @@ int main(void)
 	// 47ms per phase = 96ms per tick, so ~2.8 minutes to make a full 360 deg rotation. 
 	
 	rx8900_fixed_timer_set_count(3);			// 3/64th of a second per tick phase = ~47ms per phase which should be enough time. 
-	rx8900_fixed_timer_start_64thsecs();		// Start generating pulses on /INT based on the above set counter number of 1/64ths of a second.
 	
+	rx8900_fixed_timer_start_64thsecs();		// Start generating pulses on /INT based on the above set counter number of 1/64ths of a second.
+
 	// Note that the interrupt from the INT pin will get enabled inside onNextINTWakeEvent()
 		
 	// Now quickly spin the hand the number of ticks specified in the EEPROM config.
 	// This tests the motor and gives some visual feedback that things are working. 
-		
-	uint16_t startup_doubleticks = 900;// getStartDoubleTicksFromEEPROM();
+	
+	uint16_t startup_doubleticks = getStartDoubleTicksFromEEPROM();
 	
 	for( uint16_t i=0; i< startup_doubleticks ; i++ ) {
 							
 		onNextINTWakeEvent( [](){ motorPhaseOn<A>(); } );
 		onNextINTWakeEvent( [](){ motorPhaseOff<A>(); } );
-		
-			
+					
 		onNextINTWakeEvent( [](){ motorPhaseOn<B>(); } );	
 		onNextINTWakeEvent( [](){ motorPhaseOff<B>(); } );		
+
 					
 	}
 	
@@ -1007,34 +1011,5 @@ int main(void)
 	
 	
 	__builtin_unreachable();											
-
-		
-	//#define SECS_PER_SCOTTLIFE (1335721787UL)
-	//#define MINS_PERSCOTTLIFE (SECS_PER_SCOTTLIFE/SECS_PER_MIN)
-
-/*
-	
-	// The numbers are just too big for even long ints, so use a float. 
-	const double HUMANLIFE_SECS =  (1.0 * HUMANLIFE_YEARS * TROPICALYEAR_SECS);
-	
-	spin( (unsigned) ( (SECS_PER_SCOTTLIFE / HUMANLIFE_SECS ) * 3600.0) );			
-	
-*/
-
-	// Start the fixed cycle timer (we set up the timer and specified the count above)
-	//rx8900_fixed_timer_start_secs();	
-
 			
-
-	
-	//rx8900_fixed_timer_set_seconds( 4 );		
-	//rx8900_fixed_timer_set_seconds( SOLARDAY_SECS_PER_TICK );	
-	//rx8900_fixed_timer_set_seconds( LUNARMONTH_SECS_PER_TICK );
-	//rx8900_fixed_timer_set_minutes( HUMANLIFE_MINS_PER_TICK );
-	//rx8900_fixed_timer_set_minutes(  TROPICALYEAR_MINS_PER_TICK );
-	//rx8900_fixed_timer_set_minutes(  1  );
-						
-	
-	__builtin_unreachable();
-		
 }
