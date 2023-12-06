@@ -38,10 +38,9 @@ Once the button has been pressed and the hand has completed its 1/2 revolution, 
 | Mode | Full Rotation Period | Tick Every... |
 | - | - | - |
 | Day | 24 hours | [24 seconds](https://www.wolframalpha.com/input/?i=%28%28day%29+%2F+3600%29+in+seconds) |
-| Month | [29.53059 days](https://en.wikipedia.org/wiki/Lunar_month) | [11 minutes, 48.73411 seconds](https://www.wolframalpha.com/input/?i=%28%28lunar+month%29+%2F+3600%29+in+minutes) |
-| Year | 1 year | [2 hours 26 minutes](https://www.wolframalpha.com/input/?i=%28%28year%29+%2F+3600%29+in+minutes) |
+| Moon | 1 lunar month [(29.53059 days)](https://en.wikipedia.org/wiki/Lunar_month) | [11 minutes, 48.73411 seconds](https://www.wolframalpha.com/input/?i=%28%28lunar+month%29+%2F+3600%29+in+minutes) |
+| Year | 1 solar year [(365.2422 days)](https://www.google.com/search?q=solar+year+in+days)| [2 hours 26 minutes](https://www.wolframalpha.com/input/?i=%28%28year%29+%2F+3600%29+in+minutes) |
 
- 
 ## Problems
 
 * Try again a couple of times. If you happen to be unlucky and a tick happens in the middle of the programming cycle that can interrupt the programming.
