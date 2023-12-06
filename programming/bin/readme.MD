@@ -24,7 +24,7 @@ Note that you can also use a non-Windows computer or a different programmer, but
 2. Hold the connector against the clock board like this...
 
     ![](hold_connector.png)
-1. Double click on the appropriate programming file in the directory (either `day.bat`, `month.bat`, or `year.bat`)
+1. Double click on the appropriate programming file in the directory (either `day.bat`, `moon.bat`, or `year.bat`)
 2. Wait for programming success (see [Problems](#Problems) below if no success)
 3. Remove programming connector
 4. Push the button on the movement
