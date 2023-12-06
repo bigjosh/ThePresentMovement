@@ -69,9 +69,9 @@ unsigned getCountFromEEPROM() {
 	
 }
 
-// How many double ticks should we execute durring the start-up button press?
+// How many double ticks should we execute during the start-up button press?
 // These ticks give visual feedback that the motor is working.
-// We specify half the number of ticks we actually want os we know we always will land on phase A.
+// We specify half the number of ticks we actually want so we know we always will land on phase A.
 
 unsigned getStartDoubleTicksFromEEPROM() {
 	return eeprom_read_word( (const uint16_t *) 0x0006 );		
@@ -238,6 +238,7 @@ void movement_mid_off() {
 #define RX8900_EXTENTION_REG_TSEL_64S_MASK	 ( RX8900_EXTENTION_REG_TSEL0_MASK )										// "1/64ths" update / Once per ~15.6ms
 #define RX8900_EXTENTION_REG_TSEL_4096S_MASK ( RX8900_EXTENTION_REG_TSEL0_MASK )										// "1/4096ths" update / Once per ~244us
 
+#define RX8900_TIME_SEC_REG (0)		// Current time seconds
 
 #define RX8900_FLAG_REG        0x0e			
 
@@ -245,6 +246,9 @@ void movement_mid_off() {
 
 #define RX8900_CONTROL_REG_CSEL1     _BV(7)
 #define RX8900_CONTROL_REG_CSEL0     _BV(6)
+
+#define RX8900_CONTROL_REG_RESET     _BV(0)
+
 
 //CSEL0,1 ( Compensation interval Select 0, 1 ) bits
 //The combination of these two bits is used to set the temperature compensation interval.
@@ -401,6 +405,17 @@ void rx8900_setup(void) {
 	
 	rx8900_reg_set( RX8900_BACKUP_REG , RX8900_BACKUP_REG_DISABLED_VALUE  );
 	
+}
+
+// This resets the internal 32768Hz counters so the next second will start 1 sec from when this is called. 
+// Leaves timer interuppt enable TIE on
+
+void rx8900_reset_prescaller(void) {
+
+	// 2 second temp comp, enable the fixed timer interrupt on /INT (but it will not fire until fixed timer is enabled)
+	
+	rx8900_reg_set( RX8900_CONTROL_REG , RX8900_CONTROL_REG_TEMPCOMP_2S_MASK | RX8900_CONTROL_REG_TIE_MASK | RX8900_CONTROL_REG_RESET );
+		
 }
 
 
@@ -602,7 +617,6 @@ void normalStepMode() {
 		CLRBIT( DIDR0 , ADC1D );				// Enable digital input buffer on the pin connected to /INT so we will see when RTC pulls it low
 		SETBIT( PCMSK , RX8900INT_PCMSK );		// Enable interrupt on /INT pin change to wake us when RTC says we are ready for next tick.
 
-		#warning
 		//div8Clock();		
 		//_delay_us(100/8)		;		// keep processor running to absorb inductive kick?
 		//fullSpeedClock();
@@ -834,9 +848,11 @@ int main(void)
 	SETBIT( PCMSK , BUTTON_PCMSK );	   // Enable change interrupt on the button pin. You must also sei() and enable PCIE in GIMSK to enable all pin change interrupts
 	sei();							   // And finally ready to actually enable interrupts. Still need to enable individual pins in the mask as needed.
 
-	// First check that our EEPROM is correctly programmed
-	
-	if (getCookieFromEEPROM()!=EEPROM_COOKIE) {
+
+
+	// check that our EEPROM is correctly programmed
+	#warning
+	if (0 && getCookieFromEEPROM()!=EEPROM_COOKIE) {
 		
 		errormode(ERRORMODE_COOKIE);
 		__builtin_unreachable();
@@ -871,8 +887,9 @@ int main(void)
 	
 	// If we get here, we know the button is currently pressed.
 	
-	_delay_ms(50);		// Debounce 
+	_delay_ms(50);		// Debounce
 	
+		
 	
 	// wait for button to be released. This makes sure the button is not stuck down. 
 	
@@ -911,6 +928,9 @@ int main(void)
 	
 	uint16_t startup_doubleticks = getStartDoubleTicksFromEEPROM();
 	
+	#warning
+	startup_doubleticks=10;
+	
 	for( uint16_t i=0; i< startup_doubleticks ; i++ ) {
 							
 		onNextINTWakeEvent( [](){ motorPhaseOn<A>(); } );
@@ -918,7 +938,6 @@ int main(void)
 					
 		onNextINTWakeEvent( [](){ motorPhaseOn<B>(); } );	
 		onNextINTWakeEvent( [](){ motorPhaseOff<B>(); } );		
-
 					
 	}
 	
@@ -959,30 +978,58 @@ int main(void)
 	CLRBIT( PCMSK , BUTTON_PCMSK );			// Disable change interrupt on the button pin- we will never use it again. 
 	CLRBIT( BUTTON_PORT , BUTTON_BIT );		// Disable the pull-up
 	SETBIT( BUTTON_DDR , BUTTON_BIT );		// Drive button pin low so it will not use any power (we never need to check it again)	
-		
-				
-	// *** Start out clock from this moment the button is pressed (behavior for now)
+
+	#warning
 	
+	motorPhaseOn<A>();
+	_delay_ms(100);	
+	motorPhaseOff<A>();
+		
+	rx8900_fixed_timer_set_count( 2 );
+	rx8900_reset_prescaller();  // We need this to reset the internal prescallers, otherwise first period will be too short by unknown amount. 
+	rx8900_reg_set( RX8900_TIME_SEC_REG , 0 );		// We also have to clear the seconds register if we want the first period on the minute counter to be correct length
+	rx8900_fixed_timer_start_mins();
+	//rx8900_fixed_timer_start( RX8900_EXTENTION_REG_TSEL_SEC_MASK );
+	
+	motorPhaseOn<B>();	
+	_delay_ms(100);	
+	motorPhaseOff<B>();	
+	
+	SETBIT( PCMSK , RX8900INT_PCMSK );				// Enable change interrupt on /INT pin change from RTC.	
+	
+	while(1) {
+		sleep_cpu();
+		motorPhaseOn<A>(); 
+		_delay_ms(100);
+		motorPhaseOff<A>();
+		
+		sleep_cpu();
+		motorPhaseOn<B>(); 
+		_delay_ms(100);		
+		motorPhaseOff<B>(); 
+	}
+
+						
 
 	// Program the timer based on the user settings from EEPROM
 
 	rx8900_fixed_timer_set_count( getCountFromEEPROM() );
-
+	
 	switch ( getTimebaseFromEEPROM() ) {
 
-		case EEPROM_TIMEBASE::TB_4096THS:
+		case 0:
 		rx8900_fixed_timer_start( RX8900_EXTENTION_REG_TSEL_4096S_MASK );
 		break;
 
-		case EEPROM_TIMEBASE::TB_64THS:
+		case 1:
 		rx8900_fixed_timer_start( RX8900_EXTENTION_REG_TSEL_64S_MASK );
 		break;
 
-		case EEPROM_TIMEBASE::TB_1S:
+		case 2:
 		rx8900_fixed_timer_start( RX8900_EXTENTION_REG_TSEL_SEC_MASK );
 		break;
 
-		case EEPROM_TIMEBASE::TB_1M:
+		case 3:
 		rx8900_fixed_timer_start( RX8900_EXTENTION_REG_TSEL_MIN_MASK );
 		break;
 
@@ -990,6 +1037,8 @@ int main(void)
 		errormode( ERRORMODE_TIMEBASE );
 
 	}
+	
+	// Tick tock forever
 			
 	while (1) {
 		
