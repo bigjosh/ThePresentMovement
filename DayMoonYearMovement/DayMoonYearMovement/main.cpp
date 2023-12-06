@@ -851,8 +851,8 @@ int main(void)
 
 
 	// check that our EEPROM is correctly programmed
-	#warning
-	if (0 && getCookieFromEEPROM()!=EEPROM_COOKIE) {
+
+	if (getCookieFromEEPROM()!=EEPROM_COOKIE) {
 		
 		errormode(ERRORMODE_COOKIE);
 		__builtin_unreachable();
@@ -928,9 +928,6 @@ int main(void)
 	
 	uint16_t startup_doubleticks = getStartDoubleTicksFromEEPROM();
 	
-	#warning
-	startup_doubleticks=10;
-	
 	for( uint16_t i=0; i< startup_doubleticks ; i++ ) {
 							
 		onNextINTWakeEvent( [](){ motorPhaseOn<A>(); } );
@@ -978,9 +975,17 @@ int main(void)
 	CLRBIT( PCMSK , BUTTON_PCMSK );			// Disable change interrupt on the button pin- we will never use it again. 
 	CLRBIT( BUTTON_PORT , BUTTON_BIT );		// Disable the pull-up
 	SETBIT( BUTTON_DDR , BUTTON_BIT );		// Drive button pin low so it will not use any power (we never need to check it again)	
-
-	#warning
 	
+	// Now we have to clear out the prescaller and the seconds regs because, despite what the datasheet says, the fixed timer uses these
+	// to update the fixed timer counter so if we don't clear these then the first period will be too short by some random amount. :/
+	// Luckily we do not use that actual RTC time for anything so we can nonnonchalantly clear these. 	
+
+	rx8900_reset_prescaller();  // We need this to reset the internal prescallers, otherwise first period will be too short by unknown amount.
+	rx8900_reg_set( RX8900_TIME_SEC_REG , 0 );		// We also have to clear the seconds register if we want the first period on the minute counter to be correct length
+
+
+/*
+	#warning	
 	motorPhaseOn<A>();
 	_delay_ms(100);	
 	motorPhaseOff<A>();
@@ -1008,7 +1013,7 @@ int main(void)
 		_delay_ms(100);		
 		motorPhaseOff<B>(); 
 	}
-
+*/
 						
 
 	// Program the timer based on the user settings from EEPROM
